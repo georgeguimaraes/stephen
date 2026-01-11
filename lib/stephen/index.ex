@@ -14,8 +14,10 @@ defmodule Stephen.Index do
     :embedding_dim,
     :doc_embeddings,
     :token_to_doc,
+    :doc_to_tokens,
     :doc_count,
-    :token_count
+    :token_count,
+    :deleted_token_ids
   ]
 
   @type t :: %__MODULE__{
@@ -23,8 +25,10 @@ defmodule Stephen.Index do
           embedding_dim: non_neg_integer(),
           doc_embeddings: %{term() => Nx.Tensor.t()},
           token_to_doc: %{non_neg_integer() => term()},
+          doc_to_tokens: %{term() => [non_neg_integer()]},
           doc_count: non_neg_integer(),
-          token_count: non_neg_integer()
+          token_count: non_neg_integer(),
+          deleted_token_ids: [non_neg_integer()]
         }
 
   @type doc_id :: term()
@@ -35,7 +39,7 @@ defmodule Stephen.Index do
   ## Options
     * `:embedding_dim` - Dimension of embeddings (required)
     * `:space` - Distance space, :cosine or :l2 (default: :cosine)
-    * `:max_elements` - Maximum number of token embeddings (default: 100_000)
+    * `:max_tokens` - Maximum number of token embeddings (default: 100_000)
     * `:m` - HNSW M parameter (default: 16)
     * `:ef_construction` - HNSW ef_construction parameter (default: 200)
   """
@@ -43,12 +47,12 @@ defmodule Stephen.Index do
   def new(opts \\ []) do
     embedding_dim = Keyword.fetch!(opts, :embedding_dim)
     space = Keyword.get(opts, :space, :cosine)
-    max_elements = Keyword.get(opts, :max_elements, 100_000)
+    max_tokens = Keyword.get(opts, :max_tokens, 100_000)
     m = Keyword.get(opts, :m, 16)
     ef_construction = Keyword.get(opts, :ef_construction, 200)
 
     {:ok, hnsw_index} =
-      HNSWLib.Index.new(space, embedding_dim, max_elements,
+      HNSWLib.Index.new(space, embedding_dim, max_tokens,
         m: m,
         ef_construction: ef_construction
       )
@@ -58,8 +62,10 @@ defmodule Stephen.Index do
       embedding_dim: embedding_dim,
       doc_embeddings: %{},
       token_to_doc: %{},
+      doc_to_tokens: %{},
       doc_count: 0,
-      token_count: 0
+      token_count: 0,
+      deleted_token_ids: []
     }
   end
 
@@ -80,8 +86,10 @@ defmodule Stephen.Index do
       hnsw_index: hnsw_index,
       doc_embeddings: doc_embeddings,
       token_to_doc: token_to_doc,
+      doc_to_tokens: doc_to_tokens,
       doc_count: doc_count,
-      token_count: token_count
+      token_count: token_count,
+      deleted_token_ids: deleted_ids
     } = index
 
     {num_tokens, _dim} = Nx.shape(embeddings)
@@ -92,22 +100,53 @@ defmodule Stephen.Index do
       |> Nx.to_batched(1)
       |> Enum.map(&Nx.squeeze/1)
 
+    # Reuse deleted IDs first, then allocate new ones
+    {token_ids, remaining_deleted, new_token_count} =
+      allocate_token_ids(deleted_ids, num_tokens, token_count)
+
     # Add each token embedding to the HNSW index
-    new_token_to_doc =
+    {new_token_to_doc, assigned_ids} =
       embeddings_list
-      |> Enum.with_index(token_count)
-      |> Enum.reduce(token_to_doc, fn {embedding, token_idx}, acc ->
+      |> Enum.zip(token_ids)
+      |> Enum.reduce({token_to_doc, []}, fn {embedding, token_idx}, {acc_map, acc_ids} ->
+        # Unmark if this was a previously deleted ID
+        if token_idx in deleted_ids do
+          HNSWLib.Index.unmark_deleted(hnsw_index, token_idx)
+        end
+
         :ok = HNSWLib.Index.add_items(hnsw_index, embedding, ids: [token_idx])
-        Map.put(acc, token_idx, doc_id)
+        {Map.put(acc_map, token_idx, doc_id), [token_idx | acc_ids]}
       end)
 
     %{
       index
       | doc_embeddings: Map.put(doc_embeddings, doc_id, embeddings),
         token_to_doc: new_token_to_doc,
+        doc_to_tokens: Map.put(doc_to_tokens, doc_id, Enum.reverse(assigned_ids)),
         doc_count: doc_count + 1,
-        token_count: token_count + num_tokens
+        token_count: new_token_count,
+        deleted_token_ids: remaining_deleted
     }
+  end
+
+  # Allocate token IDs, reusing deleted ones first
+  defp allocate_token_ids(deleted_ids, num_needed, current_count) do
+    num_reused = min(length(deleted_ids), num_needed)
+    {reused_ids, remaining_deleted} = Enum.split(deleted_ids, num_reused)
+
+    num_new = num_needed - num_reused
+
+    new_ids =
+      if num_new > 0 do
+        Enum.to_list(current_count..(current_count + num_new - 1))
+      else
+        []
+      end
+
+    all_ids = reused_ids ++ new_ids
+    new_count = current_count + num_new
+
+    {all_ids, remaining_deleted, new_count}
   end
 
   @doc """
@@ -125,6 +164,99 @@ defmodule Stephen.Index do
     Enum.reduce(documents, index, fn {doc_id, embeddings}, acc ->
       add(acc, doc_id, embeddings)
     end)
+  end
+
+  @doc """
+  Removes a document from the index.
+
+  The document's token embeddings are marked as deleted in the HNSW index
+  and their IDs are saved for reuse when new documents are added.
+
+  ## Arguments
+    * `index` - The index struct
+    * `doc_id` - The document ID to remove
+
+  ## Returns
+    Updated index struct, or the original index if doc_id not found.
+  """
+  @spec delete(t(), doc_id()) :: t()
+  def delete(index, doc_id) do
+    case Map.get(index.doc_to_tokens, doc_id) do
+      nil ->
+        index
+
+      token_ids ->
+        %{
+          hnsw_index: hnsw_index,
+          doc_embeddings: doc_embeddings,
+          token_to_doc: token_to_doc,
+          doc_to_tokens: doc_to_tokens,
+          doc_count: doc_count,
+          deleted_token_ids: deleted_ids
+        } = index
+
+        # Mark tokens as deleted in HNSW
+        Enum.each(token_ids, fn token_id ->
+          HNSWLib.Index.mark_deleted(hnsw_index, token_id)
+        end)
+
+        # Remove from mappings
+        new_token_to_doc = Map.drop(token_to_doc, token_ids)
+
+        %{
+          index
+          | doc_embeddings: Map.delete(doc_embeddings, doc_id),
+            token_to_doc: new_token_to_doc,
+            doc_to_tokens: Map.delete(doc_to_tokens, doc_id),
+            doc_count: max(doc_count - 1, 0),
+            deleted_token_ids: token_ids ++ deleted_ids
+        }
+    end
+  end
+
+  @doc """
+  Removes multiple documents from the index.
+
+  ## Arguments
+    * `index` - The index struct
+    * `doc_ids` - List of document IDs to remove
+
+  ## Returns
+    Updated index struct.
+  """
+  @spec delete_all(t(), [doc_id()]) :: t()
+  def delete_all(index, doc_ids) do
+    Enum.reduce(doc_ids, index, fn doc_id, acc ->
+      delete(acc, doc_id)
+    end)
+  end
+
+  @doc """
+  Updates a document in the index by replacing its embeddings.
+
+  This is equivalent to deleting and re-adding the document.
+
+  ## Arguments
+    * `index` - The index struct
+    * `doc_id` - The document ID to update
+    * `embeddings` - New embeddings tensor
+
+  ## Returns
+    Updated index struct.
+  """
+  @spec update(t(), doc_id(), Nx.Tensor.t()) :: t()
+  def update(index, doc_id, embeddings) do
+    index
+    |> delete(doc_id)
+    |> add(doc_id, embeddings)
+  end
+
+  @doc """
+  Checks if a document exists in the index.
+  """
+  @spec has_doc?(t(), doc_id()) :: boolean()
+  def has_doc?(index, doc_id) do
+    Map.has_key?(index.doc_embeddings, doc_id)
   end
 
   @doc """
@@ -214,8 +346,10 @@ defmodule Stephen.Index do
       embedding_dim: index.embedding_dim,
       doc_embeddings: serialize_embeddings(index.doc_embeddings),
       token_to_doc: index.token_to_doc,
+      doc_to_tokens: index.doc_to_tokens,
       doc_count: index.doc_count,
-      token_count: index.token_count
+      token_count: index.token_count,
+      deleted_token_ids: index.deleted_token_ids
     }
 
     metadata_path = Path.join(path, "metadata.etf")
@@ -245,8 +379,10 @@ defmodule Stephen.Index do
          embedding_dim: metadata.embedding_dim,
          doc_embeddings: deserialize_embeddings(metadata.doc_embeddings),
          token_to_doc: metadata.token_to_doc,
+         doc_to_tokens: Map.get(metadata, :doc_to_tokens, %{}),
          doc_count: metadata.doc_count,
-         token_count: metadata.token_count
+         token_count: metadata.token_count,
+         deleted_token_ids: Map.get(metadata, :deleted_token_ids, [])
        }}
     end
   end

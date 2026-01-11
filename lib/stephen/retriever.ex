@@ -40,7 +40,7 @@ defmodule Stephen.Retriever do
   ## Options
     * `:top_k` - Number of results to return (default: 10)
     * `:candidates_per_token` - ANN candidates per query token (default: 50)
-    * `:rerank` - Whether to rerank with full MaxSim (default: true)
+    * `:rerank?` - Whether to rerank with full MaxSim (default: true)
 
   ## Returns
     List of `%{doc_id: term(), score: float()}` sorted by score descending.
@@ -260,7 +260,7 @@ defmodule Stephen.Retriever do
   ## Options
     * `:top_k` - Number of results per query (default: 10)
     * `:candidates_per_token` - ANN candidates per query token (default: 50)
-    * `:rerank` - Whether to rerank with full MaxSim (default: true)
+    * `:rerank?` - Whether to rerank with full MaxSim (default: true)
 
   ## Returns
     List of result lists, one per query.
@@ -297,7 +297,7 @@ defmodule Stephen.Retriever do
   ## Options
     * `:top_k` - Number of results to return (default: 10)
     * `:candidates_per_token` - ANN candidates per query token (default: 50)
-    * `:rerank` - Whether to rerank with full MaxSim (default: true)
+    * `:rerank?` - Whether to rerank with full MaxSim (default: true)
     * `:nprobe` - Number of centroids to probe for Plaid/Compressed (default: 32)
 
   ## Returns
@@ -313,11 +313,11 @@ defmodule Stephen.Retriever do
   def search_with_embeddings(query_embeddings, %Index{} = index, opts) do
     top_k = Keyword.get(opts, :top_k, 10)
     candidates_per_token = Keyword.get(opts, :candidates_per_token, 50)
-    rerank = Keyword.get(opts, :rerank, true)
+    rerank? = Keyword.get(opts, :rerank?, true)
 
     candidates = Index.search_tokens(index, query_embeddings, candidates_per_token)
 
-    if rerank do
+    if rerank? do
       rerank_candidates(query_embeddings, candidates, index, top_k)
     else
       format_candidates_as_results(candidates, top_k)

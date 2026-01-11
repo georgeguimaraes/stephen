@@ -25,7 +25,10 @@ defmodule Stephen.MixProject do
       {:nx, "~> 0.9"},
       {:axon, "~> 0.7"},
       {:exla, "~> 0.9", optional: true},
-      {:hnswlib, "~> 0.1"}
+      {:hnswlib, "~> 0.1"},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:benchee, "~> 1.3", only: :dev},
+      {:benchee_json, "~> 1.0", only: :dev}
     ]
   end
 end

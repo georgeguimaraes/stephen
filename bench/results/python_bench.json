@@ -1,0 +1,105 @@
+Loading ColBERT checkpoint...
+WARNING: faiss must be imported for indexing
+[Jan 11, 15:19:32] Loading segmented_maxsim_cpp extension (set COLBERT_LOAD_TORCH_EXTENSION_VERBOSE=True for more info)...
+--- Logging error ---
+Traceback (most recent call last):
+  File "/Users/george/.local/share/uv/python/cpython-3.12.11-macos-aarch64-none/lib/python3.12/logging/__init__.py", line 1160, in emit
+    msg = self.format(record)
+          ^^^^^^^^^^^^^^^^^^^
+  File "/Users/george/.local/share/uv/python/cpython-3.12.11-macos-aarch64-none/lib/python3.12/logging/__init__.py", line 999, in format
+    return fmt.format(record)
+           ^^^^^^^^^^^^^^^^^^
+  File "/Users/george/code/stephen/.venv/lib/python3.12/site-packages/torch/_logging/_internal.py", line 887, in format
+    record.message = record.getMessage()
+                     ^^^^^^^^^^^^^^^^^^^
+  File "/Users/george/.local/share/uv/python/cpython-3.12.11-macos-aarch64-none/lib/python3.12/logging/__init__.py", line 392, in getMessage
+    msg = msg % self.args
+          ~~~~^~~~~~~~~~~
+TypeError: not enough arguments for format string
+Call stack:
+  File "/Users/george/code/stephen/scripts/benchmark_python.py", line 151, in <module>
+    main()
+  File "/Users/george/code/stephen/scripts/benchmark_python.py", line 33, in main
+    checkpoint = Checkpoint(config.checkpoint, colbert_config=config)
+  File "/Users/george/code/stephen/.venv/lib/python3.12/site-packages/colbert/modeling/checkpoint.py", line 75, in __init__
+    super().__init__(name, colbert_config)
+  File "/Users/george/code/stephen/.venv/lib/python3.12/site-packages/colbert/modeling/colbert.py", line 24, in __init__
+    ColBERT.try_load_torch_extensions(self.use_gpu)
+  File "/Users/george/code/stephen/.venv/lib/python3.12/site-packages/colbert/modeling/colbert.py", line 39, in try_load_torch_extensions
+    segmented_maxsim_cpp = load(
+  File "/Users/george/code/stephen/.venv/lib/python3.12/site-packages/torch/utils/cpp_extension.py", line 1692, in load
+    return _jit_compile(
+  File "/Users/george/code/stephen/.venv/lib/python3.12/site-packages/torch/utils/cpp_extension.py", line 2134, in _jit_compile
+    _write_ninja_file_and_build_library(
+  File "/Users/george/code/stephen/.venv/lib/python3.12/site-packages/torch/utils/cpp_extension.py", line 2248, in _write_ninja_file_and_build_library
+    get_compiler_abi_compatibility_and_version(compiler)
+  File "/Users/george/code/stephen/.venv/lib/python3.12/site-packages/torch/utils/cpp_extension.py", line 463, in get_compiler_abi_compatibility_and_version
+    logger.warning(WRONG_COMPILER_WARNING, compiler, _accepted_compilers_for_platform()[0], sys.platform, _accepted_compilers_for_platform()[0])
+Message: '                               !! WARNING !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!Your compiler (%s) is not compatible with the compiler Pytorch wasbuilt with for this platform, which is %s on %s. Pleaseuse %s to to compile your extension. Alternatively, you maycompile PyTorch from source using %s, and then you can also use%s to compile your extension.See https://github.com/pytorch/pytorch/blob/master/CONTRIBUTING.md for helpwith compiling PyTorch from source.!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!                              !! WARNING !!'
+Arguments: ('c++ -Wno-missing-template-arg-list-after-template-kw', 'clang++', 'darwin', 'clang++')
+/Users/george/code/stephen/.venv/lib/python3.12/site-packages/colbert/utils/amp.py:12: FutureWarning: `torch.cuda.amp.GradScaler(args...)` is deprecated. Please use `torch.amp.GradScaler('cuda', args...)` instead.
+  self.scaler = torch.cuda.amp.GradScaler()
+/Users/george/code/stephen/.venv/lib/python3.12/site-packages/torch/cuda/amp/grad_scaler.py:31: UserWarning: torch.cuda.amp.GradScaler is enabled, but CUDA is not available.  Disabling.
+  super().__init__(
+Warming up...
+/Users/george/code/stephen/.venv/lib/python3.12/site-packages/colbert/utils/amp.py:15: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  return torch.cuda.amp.autocast() if self.activated else NullContextManager()
+/Users/george/code/stephen/.venv/lib/python3.12/site-packages/torch/amp/autocast_mode.py:270: UserWarning: User provided device_type of 'cuda', but CUDA is not available. Disabling
+  warnings.warn(
+Benchmarking query encoding...
+Benchmarking document encoding...
+Benchmarking single query encoding...
+Benchmarking single document encoding...
+Benchmarking MaxSim scoring...
+Done!
+{
+  "platform": "Python ColBERT",
+  "device": "cpu",
+  "model": "colbert-ir/colbertv2.0",
+  "load_time_s": 2.65,
+  "benchmarks": {
+    "query_batch_3": {
+      "n_queries": 3,
+      "iterations": 10,
+      "min_ms": 21.1,
+      "max_ms": 23.84,
+      "mean_ms": 21.51,
+      "median_ms": 21.29,
+      "p95_ms": 23.84
+    },
+    "doc_batch_4": {
+      "n_docs": 4,
+      "iterations": 10,
+      "min_ms": 20.43,
+      "max_ms": 24.11,
+      "mean_ms": 21.02,
+      "median_ms": 20.73,
+      "p95_ms": 24.11
+    },
+    "single_query": {
+      "iterations": 20,
+      "min_ms": 13.63,
+      "max_ms": 14.13,
+      "mean_ms": 13.84,
+      "median_ms": 13.83,
+      "p95_ms": 14.13
+    },
+    "single_doc": {
+      "iterations": 20,
+      "min_ms": 13.4,
+      "max_ms": 14.42,
+      "mean_ms": 13.68,
+      "median_ms": 13.56,
+      "p95_ms": 14.42
+    },
+    "maxsim_3x4": {
+      "description": "3 queries x 4 docs MaxSim scoring",
+      "iterations": 100,
+      "min_ms": 0.37,
+      "max_ms": 2.49,
+      "mean_ms": 0.45,
+      "median_ms": 0.43,
+      "p95_ms": 0.47
+    }
+  }
+}

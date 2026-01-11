@@ -60,14 +60,14 @@ defmodule Stephen do
   Creates a new empty index.
 
   ## Options
-    * `:max_elements` - Maximum number of token embeddings (default: 100_000)
+    * `:max_tokens` - Maximum number of token embeddings (default: 100_000)
     * `:m` - HNSW M parameter (default: 16)
     * `:ef_construction` - HNSW ef_construction (default: 200)
 
   ## Examples
 
       index = Stephen.new_index(encoder)
-      index = Stephen.new_index(encoder, max_elements: 1_000_000)
+      index = Stephen.new_index(encoder, max_tokens: 1_000_000)
   """
   @spec new_index(encoder(), keyword()) :: index()
   def new_index(encoder, opts \\ []) do
@@ -96,7 +96,7 @@ defmodule Stephen do
 
   ## Options
     * `:top_k` - Number of results to return (default: 10)
-    * `:rerank` - Whether to rerank with full MaxSim (default: true)
+    * `:rerank?` - Whether to rerank with full MaxSim (default: true)
 
   ## Examples
 

@@ -94,7 +94,7 @@ Stephen provides three index implementations for different use cases:
 Best for small to medium collections where memory is not a concern.
 
 ```elixir
-index = Stephen.Index.new(embedding_dim: 128, max_elements: 100_000)
+index = Stephen.Index.new(embedding_dim: 128, max_tokens: 100_000)
 index = Stephen.Index.add(index, "doc1", embeddings)
 candidates = Stephen.Index.search_tokens(index, query_embeddings, 50)
 ```
@@ -246,7 +246,7 @@ Supported ColBERT models:
 index = Stephen.Index.new(
   embedding_dim: 128,
   space: :cosine,             # or :l2
-  max_elements: 100_000,
+  max_tokens: 100_000,
   m: 16,                      # HNSW M parameter
   ef_construction: 200        # HNSW ef_construction
 )

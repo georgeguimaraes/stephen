@@ -260,7 +260,7 @@ defmodule Stephen.Encoder do
 
     with {:ok, path} <- Bumblebee.HuggingFace.Hub.cached_download(url, cache_scope: model_name),
          {:ok, content} <- File.read(path),
-         {:ok, config} <- Jason.decode(content) do
+         {:ok, config} <- JSON.decode(content) do
       model_type = Map.get(config, "model_type", "bert")
 
       case Map.get(@model_type_to_module, model_type) do
@@ -323,21 +323,21 @@ defmodule Stephen.Encoder do
   Returns normalized embeddings with shape {sequence_length, output_dim}.
 
   ## Options
-    * `:skip_punctuation` - Whether to filter out punctuation token embeddings (default: false)
-    * `:deduplicate` - Whether to remove duplicate token embeddings (default: false)
+    * `:skip_punctuation?` - Whether to filter out punctuation token embeddings (default: false)
+    * `:deduplicate?` - Whether to remove duplicate token embeddings (default: false)
   """
   @spec encode_document(encoder(), String.t(), keyword()) :: embeddings()
   def encode_document(encoder, text, opts \\ []) do
-    skip_punct = Keyword.get(opts, :skip_punctuation, false)
-    dedup = Keyword.get(opts, :deduplicate, false)
+    skip_punct? = Keyword.get(opts, :skip_punctuation?, false)
+    dedup? = Keyword.get(opts, :deduplicate?, false)
     marked_text = @doc_marker <> " " <> text
 
     {embeddings, token_ids} =
       encode_single_with_ids(encoder, marked_text, encoder.max_doc_length)
 
     embeddings
-    |> maybe_filter_punctuation(token_ids, encoder.skiplist, skip_punct)
-    |> maybe_deduplicate(dedup)
+    |> maybe_filter_punctuation(token_ids, encoder.skiplist, skip_punct?)
+    |> maybe_deduplicate(dedup?)
   end
 
   @doc """
@@ -347,20 +347,20 @@ defmodule Stephen.Encoder do
   Returns a list of normalized embeddings, one per document.
 
   ## Options
-    * `:skip_punctuation` - Whether to filter out punctuation token embeddings (default: false)
-    * `:deduplicate` - Whether to remove duplicate token embeddings (default: false)
+    * `:skip_punctuation?` - Whether to filter out punctuation token embeddings (default: false)
+    * `:deduplicate?` - Whether to remove duplicate token embeddings (default: false)
   """
   @spec encode_documents(encoder(), [String.t()], keyword()) :: [embeddings()]
   def encode_documents(encoder, texts, opts \\ []) do
-    skip_punct = Keyword.get(opts, :skip_punctuation, false)
-    dedup = Keyword.get(opts, :deduplicate, false)
+    skip_punct? = Keyword.get(opts, :skip_punctuation?, false)
+    dedup? = Keyword.get(opts, :deduplicate?, false)
     marked_texts = Enum.map(texts, &(@doc_marker <> " " <> &1))
 
     encode_batch_with_ids(encoder, marked_texts, encoder.max_doc_length)
     |> Enum.map(fn {embeddings, token_ids} ->
       embeddings
-      |> maybe_filter_punctuation(token_ids, encoder.skiplist, skip_punct)
-      |> maybe_deduplicate(dedup)
+      |> maybe_filter_punctuation(token_ids, encoder.skiplist, skip_punct?)
+      |> maybe_deduplicate(dedup?)
     end)
   end
 
@@ -612,7 +612,8 @@ defmodule Stephen.Encoder do
 
   # Find indices to keep after deduplication
   defp deduplicate_indices(similarity, n, threshold) do
-    Enum.reduce(0..(n - 1), [], fn i, acc ->
+    0..(n - 1)
+    |> Enum.reduce([], fn i, acc ->
       # Check if this embedding is too similar to any kept embedding
       is_duplicate =
         Enum.any?(acc, fn kept_idx ->
@@ -620,8 +621,9 @@ defmodule Stephen.Encoder do
           sim > threshold
         end)
 
-      if is_duplicate, do: acc, else: acc ++ [i]
+      if is_duplicate, do: acc, else: [i | acc]
     end)
+    |> Enum.reverse()
   end
 
   # Pad embeddings with [MASK] token embeddings to reach target length
