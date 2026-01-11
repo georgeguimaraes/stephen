@@ -24,7 +24,8 @@ defmodule Stephen.Encoder do
           max_query_length: pos_integer(),
           max_doc_length: pos_integer(),
           projection: Nx.Tensor.t() | nil,
-          mask_token_id: non_neg_integer()
+          mask_token_id: non_neg_integer(),
+          skiplist: MapSet.t()
         }
 
   @type embeddings :: Nx.Tensor.t()
@@ -35,6 +36,42 @@ defmodule Stephen.Encoder do
   @default_projection_dim 128
   @query_marker "[Q]"
   @doc_marker "[D]"
+
+  # Punctuation tokens to skip (matching Python ColBERT's skiplist)
+  @punctuation_tokens [
+    ".",
+    ",",
+    "!",
+    "?",
+    ";",
+    ":",
+    "'",
+    "\"",
+    "(",
+    ")",
+    "-",
+    "#",
+    "$",
+    "%",
+    "&",
+    "*",
+    "+",
+    "/",
+    "<",
+    "=",
+    ">",
+    "@",
+    "[",
+    "\\",
+    "]",
+    "^",
+    "_",
+    "`",
+    "{",
+    "|",
+    "}",
+    "~"
+  ]
 
   @doc """
   Loads a BERT model for encoding.
@@ -65,6 +102,9 @@ defmodule Stephen.Encoder do
       # Get the mask token ID from tokenizer
       mask_token_id = get_mask_token_id(tokenizer)
 
+      # Build skiplist of punctuation token IDs
+      skiplist = build_skiplist(tokenizer)
+
       # Initialize projection matrix if projection_dim is set
       {projection, output_dim} =
         if projection_dim && projection_dim < embedding_dim do
@@ -94,7 +134,8 @@ defmodule Stephen.Encoder do
          max_query_length: max_query_length,
          max_doc_length: max_doc_length,
          projection: projection,
-         mask_token_id: mask_token_id
+         mask_token_id: mask_token_id,
+         skiplist: skiplist
        }}
     end
   end
@@ -146,11 +187,23 @@ defmodule Stephen.Encoder do
 
   Prepends the document marker [D] before encoding.
   Returns normalized embeddings with shape {sequence_length, output_dim}.
+
+  ## Options
+    * `:skip_punctuation` - Whether to filter out punctuation token embeddings (default: false)
+    * `:deduplicate` - Whether to remove duplicate token embeddings (default: false)
   """
-  @spec encode_document(encoder(), String.t()) :: embeddings()
-  def encode_document(encoder, text) do
+  @spec encode_document(encoder(), String.t(), keyword()) :: embeddings()
+  def encode_document(encoder, text, opts \\ []) do
+    skip_punct = Keyword.get(opts, :skip_punctuation, false)
+    dedup = Keyword.get(opts, :deduplicate, false)
     marked_text = @doc_marker <> " " <> text
-    encode_single(encoder, marked_text, encoder.max_doc_length)
+
+    {embeddings, token_ids} =
+      encode_single_with_ids(encoder, marked_text, encoder.max_doc_length)
+
+    embeddings
+    |> maybe_filter_punctuation(token_ids, encoder.skiplist, skip_punct)
+    |> maybe_deduplicate(dedup)
   end
 
   @doc """
@@ -158,11 +211,23 @@ defmodule Stephen.Encoder do
 
   Uses true batched inference for efficiency.
   Returns a list of normalized embeddings, one per document.
+
+  ## Options
+    * `:skip_punctuation` - Whether to filter out punctuation token embeddings (default: false)
+    * `:deduplicate` - Whether to remove duplicate token embeddings (default: false)
   """
-  @spec encode_documents(encoder(), [String.t()]) :: [embeddings()]
-  def encode_documents(encoder, texts) do
+  @spec encode_documents(encoder(), [String.t()], keyword()) :: [embeddings()]
+  def encode_documents(encoder, texts, opts \\ []) do
+    skip_punct = Keyword.get(opts, :skip_punctuation, false)
+    dedup = Keyword.get(opts, :deduplicate, false)
     marked_texts = Enum.map(texts, &(@doc_marker <> " " <> &1))
-    encode_batch(encoder, marked_texts, encoder.max_doc_length)
+
+    encode_batch_with_ids(encoder, marked_texts, encoder.max_doc_length)
+    |> Enum.map(fn {embeddings, token_ids} ->
+      embeddings
+      |> maybe_filter_punctuation(token_ids, encoder.skiplist, skip_punct)
+      |> maybe_deduplicate(dedup)
+    end)
   end
 
   @doc """
@@ -276,6 +341,155 @@ defmodule Stephen.Encoder do
     end
   end
 
+  # Encode a single text and return both embeddings and token IDs
+  defp encode_single_with_ids(encoder, text, max_length) do
+    %{model: model, params: params, tokenizer: tokenizer, projection: projection} = encoder
+
+    configured_tokenizer =
+      Bumblebee.configure(tokenizer, length: max_length, pad_direction: :right)
+
+    inputs = Bumblebee.apply_tokenizer(configured_tokenizer, text)
+
+    %{hidden_state: hidden_state} = Axon.predict(model, params, inputs)
+
+    attention_mask = inputs["attention_mask"]
+    input_ids = inputs["input_ids"]
+
+    embeddings =
+      case Nx.shape(hidden_state) do
+        {1, seq_len, dim} -> Nx.reshape(hidden_state, {seq_len, dim})
+        {_seq_len, _dim} -> hidden_state
+        _ -> hidden_state
+      end
+
+    embeddings =
+      if projection do
+        apply_projection(embeddings, projection)
+      else
+        embeddings
+      end
+
+    embeddings = normalize(embeddings)
+
+    mask =
+      case Nx.shape(attention_mask) do
+        {1, len} -> Nx.reshape(attention_mask, {len})
+        _ -> attention_mask
+      end
+
+    ids =
+      case Nx.shape(input_ids) do
+        {1, len} -> Nx.reshape(input_ids, {len})
+        _ -> input_ids
+      end
+
+    num_real_tokens = Nx.sum(mask) |> Nx.to_number() |> trunc()
+
+    real_embeddings = Nx.slice(embeddings, [0, 0], [num_real_tokens, encoder.output_dim])
+    real_ids = Nx.slice(ids, [0], [num_real_tokens]) |> Nx.to_flat_list()
+
+    {real_embeddings, real_ids}
+  end
+
+  # Encode multiple texts and return embeddings with token IDs
+  defp encode_batch_with_ids(encoder, texts, max_length) do
+    %{model: model, params: params, tokenizer: tokenizer, projection: projection} = encoder
+
+    configured_tokenizer =
+      Bumblebee.configure(tokenizer, length: max_length, pad_direction: :right)
+
+    inputs = Bumblebee.apply_tokenizer(configured_tokenizer, texts)
+
+    %{hidden_state: hidden_state} = Axon.predict(model, params, inputs)
+
+    attention_mask = inputs["attention_mask"]
+    input_ids = inputs["input_ids"]
+
+    hidden_state =
+      if projection do
+        apply_projection_batched(hidden_state, projection)
+      else
+        hidden_state
+      end
+
+    hidden_state = normalize_batched(hidden_state)
+
+    batch_size = Nx.axis_size(hidden_state, 0)
+
+    for i <- 0..(batch_size - 1) do
+      embeddings = hidden_state[i]
+      mask = attention_mask[i]
+      ids = input_ids[i]
+
+      num_real_tokens = Nx.sum(mask) |> Nx.to_number() |> trunc()
+
+      real_embeddings = Nx.slice(embeddings, [0, 0], [num_real_tokens, encoder.output_dim])
+      real_ids = Nx.slice(ids, [0], [num_real_tokens]) |> Nx.to_flat_list()
+
+      {real_embeddings, real_ids}
+    end
+  end
+
+  # Filter out punctuation token embeddings
+  defp maybe_filter_punctuation(embeddings, _token_ids, _skiplist, false), do: embeddings
+
+  defp maybe_filter_punctuation(embeddings, token_ids, skiplist, true) do
+    # Find indices of non-punctuation tokens
+    keep_indices =
+      token_ids
+      |> Enum.with_index()
+      |> Enum.reject(fn {id, _idx} -> MapSet.member?(skiplist, id) end)
+      |> Enum.map(fn {_id, idx} -> idx end)
+
+    if length(keep_indices) == length(token_ids) do
+      # No punctuation to filter
+      embeddings
+    else
+      # Gather embeddings at keep indices
+      indices_tensor = Nx.tensor(keep_indices)
+      Nx.take(embeddings, indices_tensor, axis: 0)
+    end
+  end
+
+  # Remove duplicate embeddings based on cosine similarity
+  defp maybe_deduplicate(embeddings, false), do: embeddings
+
+  defp maybe_deduplicate(embeddings, true) do
+    {n, _dim} = Nx.shape(embeddings)
+
+    if n <= 1 do
+      embeddings
+    else
+      # Compute pairwise cosine similarity (embeddings are already normalized)
+      similarity = Nx.dot(embeddings, Nx.transpose(embeddings))
+
+      # Keep track of which indices to keep
+      # For each embedding, check if any previous embedding is too similar
+      keep_indices = deduplicate_indices(similarity, n, 0.99)
+
+      if length(keep_indices) == n do
+        embeddings
+      else
+        indices_tensor = Nx.tensor(keep_indices)
+        Nx.take(embeddings, indices_tensor, axis: 0)
+      end
+    end
+  end
+
+  # Find indices to keep after deduplication
+  defp deduplicate_indices(similarity, n, threshold) do
+    Enum.reduce(0..(n - 1), [], fn i, acc ->
+      # Check if this embedding is too similar to any kept embedding
+      is_duplicate =
+        Enum.any?(acc, fn kept_idx ->
+          sim = similarity[[i, kept_idx]] |> Nx.to_number()
+          sim > threshold
+        end)
+
+      if is_duplicate, do: acc, else: acc ++ [i]
+    end)
+  end
+
   # Pad embeddings with [MASK] token embeddings to reach target length
   defp pad_with_mask_embeddings(encoder, embeddings, target_length) do
     {current_length, dim} = Nx.shape(embeddings)
@@ -326,17 +540,33 @@ defmodule Stephen.Encoder do
 
   # Get mask token ID from tokenizer
   defp get_mask_token_id(tokenizer) do
-    # Bumblebee wraps the tokenizer in a PreTrainedTokenizer struct
-    native_tokenizer =
-      case tokenizer do
-        %{native_tokenizer: native} -> native
-        native -> native
-      end
+    native_tokenizer = get_native_tokenizer(tokenizer)
 
     # Get the mask token ID (returns nil or integer)
     case Tokenizers.Tokenizer.token_to_id(native_tokenizer, "[MASK]") do
       id when is_integer(id) -> id
       _ -> 103
+    end
+  end
+
+  # Build skiplist of punctuation token IDs from tokenizer
+  defp build_skiplist(tokenizer) do
+    native_tokenizer = get_native_tokenizer(tokenizer)
+
+    @punctuation_tokens
+    |> Enum.reduce(MapSet.new(), fn token, acc ->
+      case Tokenizers.Tokenizer.token_to_id(native_tokenizer, token) do
+        id when is_integer(id) -> MapSet.put(acc, id)
+        _ -> acc
+      end
+    end)
+  end
+
+  # Extract native tokenizer from Bumblebee wrapper
+  defp get_native_tokenizer(tokenizer) do
+    case tokenizer do
+      %{native_tokenizer: native} -> native
+      native -> native
     end
   end
 

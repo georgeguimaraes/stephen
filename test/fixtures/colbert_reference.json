@@ -1,0 +1,298 @@
+{
+  "config": {
+    "doc_maxlen": 180,
+    "query_maxlen": 32,
+    "dim": 128,
+    "checkpoint": "colbert-ir/colbertv2.0"
+  },
+  "queries": [
+    "what is machine learning?",
+    "how does ColBERT work?",
+    "neural information retrieval"
+  ],
+  "docs": [
+    "Machine learning is a subset of artificial intelligence that enables systems to learn from data.",
+    "ColBERT uses late interaction with per-token embeddings for efficient neural retrieval.",
+    "Information retrieval systems help users find relevant documents in large collections.",
+    "Deep learning models have revolutionized natural language processing tasks."
+  ],
+  "query_embeddings": {
+    "shape": [
+      3,
+      32,
+      128
+    ],
+    "dtype": "torch.float32",
+    "sample_values": [
+      [
+        0.040655,
+        0.061052,
+        -0.053721,
+        0.015507,
+        0.084076
+      ],
+      [
+        0.123553,
+        0.035681,
+        0.003612,
+        0.063752,
+        0.161224
+      ],
+      [
+        0.014495,
+        0.058119,
+        -0.119849,
+        -0.00832,
+        0.120345
+      ],
+      [
+        -0.007293,
+        0.045231,
+        -0.084371,
+        -0.007492,
+        0.124075
+      ],
+      [
+        0.120144,
+        0.030309,
+        0.040055,
+        0.052955,
+        0.138916
+      ]
+    ]
+  },
+  "doc_embeddings": {
+    "shape": [
+      4,
+      20,
+      128
+    ],
+    "sample_values": [
+      [
+        0.032574,
+        0.049892,
+        -0.111625,
+        0.006529,
+        0.057021
+      ],
+      [
+        0.111236,
+        0.033521,
+        -0.040545,
+        0.033953,
+        0.167583
+      ],
+      [
+        0.121122,
+        0.029825,
+        0.004307,
+        0.042139,
+        0.153998
+      ],
+      [
+        -0.035329,
+        0.110011,
+        -0.033502,
+        -0.124071,
+        -0.076554
+      ],
+      [
+        -0.004623,
+        0.033973,
+        -0.143392,
+        -0.015997,
+        0.10211
+      ]
+    ]
+  },
+  "maxsim_scores": [
+    [
+      {
+        "query_idx": 0,
+        "doc_idx": 0,
+        "score": 30.036451
+      },
+      {
+        "query_idx": 0,
+        "doc_idx": 1,
+        "score": 4.100722
+      },
+      {
+        "query_idx": 0,
+        "doc_idx": 2,
+        "score": 5.945603
+      },
+      {
+        "query_idx": 0,
+        "doc_idx": 3,
+        "score": 15.147742
+      }
+    ],
+    [
+      {
+        "query_idx": 1,
+        "doc_idx": 0,
+        "score": 5.388658
+      },
+      {
+        "query_idx": 1,
+        "doc_idx": 1,
+        "score": 24.10029
+      },
+      {
+        "query_idx": 1,
+        "doc_idx": 2,
+        "score": 7.143242
+      },
+      {
+        "query_idx": 1,
+        "doc_idx": 3,
+        "score": 3.291973
+      }
+    ],
+    [
+      {
+        "query_idx": 2,
+        "doc_idx": 0,
+        "score": 8.79582
+      },
+      {
+        "query_idx": 2,
+        "doc_idx": 1,
+        "score": 20.771442
+      },
+      {
+        "query_idx": 2,
+        "doc_idx": 2,
+        "score": 19.847698
+      },
+      {
+        "query_idx": 2,
+        "doc_idx": 3,
+        "score": 7.668553
+      }
+    ]
+  ],
+  "tokenization": {
+    "test_text": "Hello, world! This is a test. How are you?",
+    "test_tokens": [
+      "[CLS]",
+      "hello",
+      ",",
+      "world",
+      "!",
+      "this",
+      "is",
+      "a",
+      "test",
+      ".",
+      "how",
+      "are",
+      "you",
+      "?",
+      "[SEP]"
+    ],
+    "test_token_ids": [
+      101,
+      7592,
+      1010,
+      2088,
+      999,
+      2023,
+      2003,
+      1037,
+      3231,
+      1012,
+      2129,
+      2024,
+      2017,
+      1029,
+      102
+    ],
+    "punct_tokens": {
+      ".": {
+        "id": 1012,
+        "in_skiplist": true
+      },
+      ",": {
+        "id": 1010,
+        "in_skiplist": true
+      },
+      "!": {
+        "id": 999,
+        "in_skiplist": true
+      },
+      "?": {
+        "id": 1029,
+        "in_skiplist": true
+      },
+      ";": {
+        "id": 1025,
+        "in_skiplist": true
+      },
+      ":": {
+        "id": 1024,
+        "in_skiplist": true
+      },
+      "'": {
+        "id": 1005,
+        "in_skiplist": true
+      },
+      "\"": {
+        "id": 1000,
+        "in_skiplist": true
+      },
+      "(": {
+        "id": 1006,
+        "in_skiplist": true
+      },
+      ")": {
+        "id": 1007,
+        "in_skiplist": true
+      },
+      "-": {
+        "id": 1011,
+        "in_skiplist": true
+      },
+      "[PAD]": {
+        "id": 0,
+        "in_skiplist": false
+      },
+      "[CLS]": {
+        "id": 101,
+        "in_skiplist": false
+      },
+      "[SEP]": {
+        "id": 102,
+        "in_skiplist": false
+      },
+      "[MASK]": {
+        "id": 103,
+        "in_skiplist": false
+      }
+    },
+    "skiplist_size": 64,
+    "skiplist_sample": [
+      "!",
+      999,
+      "\"",
+      1000,
+      "#",
+      1001,
+      "$",
+      1002,
+      "%",
+      1003,
+      "&",
+      1004,
+      "'",
+      1005,
+      "(",
+      1006,
+      ")",
+      1007,
+      "*",
+      1008
+    ]
+  }
+}

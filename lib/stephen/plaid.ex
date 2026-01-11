@@ -179,6 +179,100 @@ defmodule Stephen.Plaid do
   @spec get_embeddings(t(), doc_id()) :: Nx.Tensor.t() | nil
   def get_embeddings(plaid, doc_id), do: Map.get(plaid.doc_embeddings, doc_id)
 
+  @doc """
+  Saves the PLAID index to disk.
+
+  ## Arguments
+    * `plaid` - PLAID index to save
+    * `path` - File path to save to
+  """
+  @spec save(t(), Path.t()) :: :ok | {:error, term()}
+  def save(plaid, path) do
+    # Serialize centroids
+    centroids_data =
+      if plaid.centroids do
+        {Nx.shape(plaid.centroids), Nx.type(plaid.centroids), Nx.to_binary(plaid.centroids)}
+      else
+        nil
+      end
+
+    # Serialize doc embeddings
+    doc_embeddings_data =
+      plaid.doc_embeddings
+      |> Enum.map(fn {doc_id, emb} ->
+        {doc_id, {Nx.shape(emb), Nx.type(emb), Nx.to_binary(emb)}}
+      end)
+      |> Map.new()
+
+    # Convert inverted index MapSets to lists for serialization
+    inverted_index_data =
+      plaid.inverted_index
+      |> Enum.map(fn {k, v} -> {k, MapSet.to_list(v)} end)
+      |> Map.new()
+
+    data = %{
+      centroids: centroids_data,
+      inverted_index: inverted_index_data,
+      doc_embeddings: doc_embeddings_data,
+      num_centroids: plaid.num_centroids,
+      embedding_dim: plaid.embedding_dim,
+      doc_count: plaid.doc_count
+    }
+
+    File.write(path, :erlang.term_to_binary(data))
+  end
+
+  @doc """
+  Loads a PLAID index from disk.
+
+  ## Arguments
+    * `path` - File path to load from
+
+  ## Returns
+    `{:ok, plaid}` or `{:error, reason}`
+  """
+  @spec load(Path.t()) :: {:ok, t()} | {:error, term()}
+  def load(path) do
+    with {:ok, binary} <- File.read(path) do
+      data = :erlang.binary_to_term(binary)
+
+      # Deserialize centroids
+      centroids =
+        case data.centroids do
+          {shape, type, bin} ->
+            bin |> Nx.from_binary(type) |> Nx.reshape(shape)
+
+          nil ->
+            nil
+        end
+
+      # Deserialize doc embeddings
+      doc_embeddings =
+        data.doc_embeddings
+        |> Enum.map(fn {doc_id, {shape, type, bin}} ->
+          emb = bin |> Nx.from_binary(type) |> Nx.reshape(shape)
+          {doc_id, emb}
+        end)
+        |> Map.new()
+
+      # Convert inverted index lists back to MapSets
+      inverted_index =
+        data.inverted_index
+        |> Enum.map(fn {k, v} -> {k, MapSet.new(v)} end)
+        |> Map.new()
+
+      {:ok,
+       %__MODULE__{
+         centroids: centroids,
+         inverted_index: inverted_index,
+         doc_embeddings: doc_embeddings,
+         num_centroids: data.num_centroids,
+         embedding_dim: data.embedding_dim,
+         doc_count: data.doc_count
+       }}
+    end
+  end
+
   # Train centroids using K-means
   defp train_centroids(embeddings, num_centroids) do
     {n, _dim} = Nx.shape(embeddings)

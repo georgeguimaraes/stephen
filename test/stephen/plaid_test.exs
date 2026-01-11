@@ -155,6 +155,46 @@ defmodule Stephen.PlaidTest do
     end
   end
 
+  describe "save/2 and load/1" do
+    @tag :slow
+    test "saves and loads PLAID index" do
+      plaid = Plaid.new(embedding_dim: 32, num_centroids: 4)
+      docs = create_test_documents(5, 8, 32)
+      plaid = Plaid.index_documents(plaid, docs)
+
+      path = Path.join(System.tmp_dir!(), "plaid_test_#{:rand.uniform(100_000)}.bin")
+
+      try do
+        :ok = Plaid.save(plaid, path)
+        {:ok, loaded} = Plaid.load(path)
+
+        assert loaded.num_centroids == plaid.num_centroids
+        assert loaded.embedding_dim == plaid.embedding_dim
+        assert loaded.doc_count == plaid.doc_count
+        assert Nx.shape(loaded.centroids) == Nx.shape(plaid.centroids)
+        assert Plaid.doc_ids(loaded) == Plaid.doc_ids(plaid)
+
+        # Verify search still works after reload
+        key = Nx.Random.key(999)
+        {query_emb, _key} = Nx.Random.normal(key, shape: {5, 32}, type: :f32)
+        query_emb = normalize(query_emb)
+
+        original_results = Plaid.search(plaid, query_emb, top_k: 3)
+        loaded_results = Plaid.search(loaded, query_emb, top_k: 3)
+
+        # Results should be identical
+        assert length(original_results) == length(loaded_results)
+
+        for {orig, loaded} <- Enum.zip(original_results, loaded_results) do
+          assert orig.doc_id == loaded.doc_id
+          assert_in_delta orig.score, loaded.score, 0.0001
+        end
+      after
+        File.rm(path)
+      end
+    end
+  end
+
   # Helper functions
 
   defp create_test_documents(num_docs, seq_len, dim) do

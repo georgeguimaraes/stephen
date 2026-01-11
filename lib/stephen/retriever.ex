@@ -6,9 +6,23 @@ defmodule Stephen.Retriever do
   1. Encode query to per-token embeddings
   2. Search ANN index for candidate documents
   3. Rerank candidates using full MaxSim scoring
+
+  ## Two-Stage Retrieval
+
+  For large collections, use a two-stage retrieval approach:
+  1. First stage: Fast candidate retrieval (BM25, dense retriever, etc.)
+  2. Second stage: Rerank candidates with ColBERT MaxSim
+
+      # Get candidates from first stage (e.g., BM25)
+      candidates = MySearch.bm25_search(query, top_k: 100)
+
+      # Rerank with ColBERT
+      results = Stephen.Retriever.rerank(encoder, index, query, candidates)
   """
 
   alias Stephen.{Encoder, Index, Scorer}
+  alias Stephen.Index.Compressed, as: CompressedIndex
+  alias Stephen.Plaid
 
   @type search_result :: %{
           doc_id: term(),
@@ -58,22 +72,43 @@ defmodule Stephen.Retriever do
   @doc """
   Reranks a list of documents against a query using full MaxSim scoring.
 
+  Supports multiple index types: Index, Plaid, and Index.Compressed.
+
   ## Arguments
     * `encoder` - Loaded encoder
-    * `index` - Document index
+    * `index` - Document index (Index, Plaid, or Index.Compressed)
     * `query` - Query string
     * `doc_ids` - List of document IDs to rerank
 
+  ## Options
+    * `:top_k` - Number of results to return (default: all)
+
   ## Returns
     List of `%{doc_id: term(), score: float()}` sorted by score descending.
+
+  ## Examples
+
+      # Rerank BM25 candidates
+      candidates = [:doc1, :doc2, :doc3]
+      results = Stephen.Retriever.rerank(encoder, index, "my query", candidates)
+
+      # Return only top 5
+      results = Stephen.Retriever.rerank(encoder, index, query, candidates, top_k: 5)
   """
-  @spec rerank(Encoder.encoder(), Index.t(), String.t(), [term()]) :: [search_result()]
-  def rerank(encoder, index, query, doc_ids) do
+  @spec rerank(
+          Encoder.encoder(),
+          Index.t() | Plaid.t() | CompressedIndex.t(),
+          String.t(),
+          [term()],
+          keyword()
+        ) :: [search_result()]
+  def rerank(encoder, index, query, doc_ids, opts \\ []) do
+    top_k = Keyword.get(opts, :top_k, length(doc_ids))
     query_embeddings = Encoder.encode_query(encoder, query)
 
     doc_ids
     |> Enum.map(fn doc_id ->
-      doc_embeddings = Index.get_embeddings(index, doc_id)
+      doc_embeddings = get_embeddings_from_index(index, doc_id)
 
       if doc_embeddings do
         score = Scorer.max_sim(query_embeddings, doc_embeddings)
@@ -83,6 +118,77 @@ defmodule Stephen.Retriever do
       end
     end)
     |> Enum.sort_by(& &1.score, :desc)
+    |> Enum.take(top_k)
+  end
+
+  @doc """
+  Reranks documents with pre-computed query embeddings.
+
+  Useful when reranking multiple candidate sets with the same query,
+  or when query embeddings are already available.
+
+  ## Arguments
+    * `query_embeddings` - Pre-computed query embeddings tensor
+    * `index` - Document index
+    * `doc_ids` - List of document IDs to rerank
+
+  ## Options
+    * `:top_k` - Number of results to return (default: all)
+
+  ## Returns
+    List of `%{doc_id: term(), score: float()}` sorted by score descending.
+  """
+  @spec rerank_with_embeddings(
+          Nx.Tensor.t(),
+          Index.t() | Plaid.t() | CompressedIndex.t(),
+          [term()],
+          keyword()
+        ) :: [search_result()]
+  def rerank_with_embeddings(query_embeddings, index, doc_ids, opts \\ []) do
+    top_k = Keyword.get(opts, :top_k, length(doc_ids))
+
+    doc_ids
+    |> Enum.map(fn doc_id ->
+      doc_embeddings = get_embeddings_from_index(index, doc_id)
+
+      if doc_embeddings do
+        score = Scorer.max_sim(query_embeddings, doc_embeddings)
+        %{doc_id: doc_id, score: score}
+      else
+        %{doc_id: doc_id, score: 0.0}
+      end
+    end)
+    |> Enum.sort_by(& &1.score, :desc)
+    |> Enum.take(top_k)
+  end
+
+  @doc """
+  Batch reranks multiple queries against their candidate documents.
+
+  ## Arguments
+    * `encoder` - Loaded encoder
+    * `index` - Document index
+    * `queries_and_candidates` - List of {query, doc_ids} tuples
+
+  ## Options
+    * `:top_k` - Number of results per query (default: 10)
+
+  ## Returns
+    List of result lists, one per query.
+  """
+  @spec batch_rerank(
+          Encoder.encoder(),
+          Index.t() | Plaid.t() | CompressedIndex.t(),
+          [{String.t(), [term()]}],
+          keyword()
+        ) :: [[search_result()]]
+  def batch_rerank(encoder, index, queries_and_candidates, opts \\ []) do
+    top_k = Keyword.get(opts, :top_k, 10)
+
+    queries_and_candidates
+    |> Enum.map(fn {query, doc_ids} ->
+      rerank(encoder, index, query, doc_ids, top_k: top_k)
+    end)
   end
 
   @doc """
@@ -110,11 +216,26 @@ defmodule Stephen.Retriever do
     candidates
     |> Map.keys()
     |> Enum.map(fn doc_id ->
-      doc_embeddings = Index.get_embeddings(index, doc_id)
+      doc_embeddings = get_embeddings_from_index(index, doc_id)
       score = Scorer.max_sim(query_embeddings, doc_embeddings)
       %{doc_id: doc_id, score: score}
     end)
     |> Enum.sort_by(& &1.score, :desc)
     |> Enum.take(top_k)
   end
+
+  # Helper to get embeddings from different index types
+  defp get_embeddings_from_index(%Index{} = index, doc_id) do
+    Index.get_embeddings(index, doc_id)
+  end
+
+  defp get_embeddings_from_index(%Plaid{} = index, doc_id) do
+    Plaid.get_embeddings(index, doc_id)
+  end
+
+  defp get_embeddings_from_index(%CompressedIndex{} = index, doc_id) do
+    CompressedIndex.get_embeddings(index, doc_id)
+  end
+
+  defp get_embeddings_from_index(_index, _doc_id), do: nil
 end
