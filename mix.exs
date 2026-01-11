@@ -45,6 +45,7 @@ defmodule Stephen.MixProject do
       main: "readme",
       extras: [
         "README.md",
+        "livebook/getting_started.livemd",
         "guides/architecture.md",
         "guides/index_types.md",
         "guides/compression.md",
@@ -52,6 +53,7 @@ defmodule Stephen.MixProject do
         "guides/configuration.md"
       ],
       groups_for_extras: [
+        Livebooks: Path.wildcard("livebook/*.livemd"),
         Guides: Path.wildcard("guides/*.md")
       ],
       groups_for_modules: [

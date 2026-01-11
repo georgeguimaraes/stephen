@@ -1,5 +1,7 @@
 # Stephen
 
+[![Run in Livebook](https://livebook.dev/badge/v1/blue.svg)](https://livebook.dev/run?url=https%3A%2F%2Fgithub.com%2Fgeorgeguimaraes%2Fstephen%2Fblob%2Fmain%2Flivebook%2Fgetting_started.livemd)
+
 ColBERT-style neural retrieval for Elixir.
 
 Stephen implements late interaction retrieval using per-token embeddings and MaxSim scoring. Instead of compressing text into a single vector, it keeps one embedding per token, enabling fine-grained semantic matching.
@@ -117,6 +119,8 @@ This shows which query tokens matched which document tokens and their similarity
 | `Stephen.Index.Compressed` | Memory-constrained, 4-32x compression |
 
 ## Documentation
+
+Try the interactive [Livebook tutorial](livebook/getting_started.livemd) to explore Stephen hands-on.
 
 See the [guides](guides/) for detailed documentation:
 

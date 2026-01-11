@@ -1,0 +1,197 @@
+# Getting Started with Stephen
+
+```elixir
+Mix.install([
+  {:stephen, "~> 0.1.0"},
+  {:exla, "~> 0.9"},
+  {:kino, "~> 0.14"}
+])
+
+# Use EXLA for faster inference
+Nx.global_default_backend(EXLA.Backend)
+```
+
+## Introduction
+
+Stephen is a ColBERT-style neural retrieval library for Elixir. Unlike traditional vector search that compresses each document into a single embedding, ColBERT keeps one embedding per token, enabling fine-grained semantic matching.
+
+This notebook walks you through:
+
+1. Loading the encoder
+2. Indexing documents
+3. Searching and understanding results
+4. Reranking candidates
+5. Debugging with explain
+
+## Load the Encoder
+
+The encoder downloads the ColBERT model on first use (~500MB). This takes a minute the first time.
+
+```elixir
+{:ok, encoder} = Stephen.load_encoder()
+```
+
+## Index Some Documents
+
+Let's index some facts about late night talk show hosts:
+
+```elixir
+documents = [
+  {"colbert", "Stephen Colbert hosted The Colbert Report on Comedy Central before taking over The Late Show on CBS"},
+  {"conan", "Conan O'Brien is known for his self-deprecating humor, tall hair, and pale complexion"},
+  {"seth", "Seth Meyers was head writer at SNL before hosting Late Night on NBC"},
+  {"oliver", "John Oliver hosts Last Week Tonight on HBO, focusing on investigative journalism"}
+]
+
+index = Stephen.new_index(encoder)
+index = Stephen.index(encoder, index, documents)
+```
+
+## Search
+
+Now let's search for relevant documents:
+
+```elixir
+query = "late night comedy hosts"
+results = Stephen.search(encoder, index, query, top_k: 3)
+```
+
+The results show document IDs ranked by their MaxSim scores. Higher scores mean better semantic matches.
+
+### Try Different Queries
+
+```elixir
+queries = [
+  "political satire and journalism",
+  "SNL comedy writers",
+  "tall comedian with red hair"
+]
+
+for query <- queries do
+  results = Stephen.search(encoder, index, query, top_k: 2)
+
+  IO.puts("\n🔍 Query: #{query}")
+  for %{doc_id: id, score: score} <- results do
+    IO.puts("   #{id}: #{Float.round(score, 2)}")
+  end
+end
+
+:ok
+```
+
+## Understanding Scores with Explain
+
+Why did a document score the way it did? Use `explain/3` to see token-level matching:
+
+```elixir
+explanation = Stephen.explain(
+  encoder,
+  "political satire journalism",
+  "John Oliver hosts Last Week Tonight on HBO, focusing on investigative journalism"
+)
+
+explanation
+|> Stephen.Scorer.format_explanation()
+|> IO.puts()
+```
+
+The explanation shows which query tokens matched which document tokens and their similarity scores. This helps debug unexpected rankings.
+
+## Reranking
+
+Stephen excels at reranking candidates from a faster first-stage retriever (like BM25 or Postgres full-text search).
+
+### Rerank from Index
+
+```elixir
+# Pretend these came from a keyword search
+candidate_ids = ["conan", "oliver", "seth"]
+
+Stephen.rerank(encoder, index, "investigative news show", candidate_ids)
+```
+
+### Rerank Raw Text
+
+No index needed for ad-hoc reranking:
+
+```elixir
+candidates = [
+  {"wiki1", "The Daily Show is an American late-night talk show"},
+  {"wiki2", "60 Minutes is an investigative journalism program"},
+  {"wiki3", "Last Week Tonight combines comedy with investigative journalism"}
+]
+
+Stephen.rerank_texts(encoder, "comedy investigative journalism", candidates)
+```
+
+## Query Expansion with PRF
+
+Pseudo-relevance feedback (PRF) expands queries using terms from top-ranked documents:
+
+```elixir
+# Without PRF
+basic = Stephen.search(encoder, index, "comedy writer", top_k: 2)
+IO.inspect(basic, label: "Basic search")
+
+# With PRF - finds related terms from top results
+expanded = Stephen.search_with_prf(encoder, index, "comedy writer", top_k: 2)
+IO.inspect(expanded, label: "With PRF")
+```
+
+PRF can improve recall when queries are short or ambiguous.
+
+## Interactive Search
+
+Try your own queries:
+
+```elixir
+query_input = Kino.Input.text("Search query", default: "funny host")
+```
+
+```elixir
+query = Kino.Input.read(query_input)
+
+if query != "" do
+  results = Stephen.search(encoder, index, query, top_k: 4)
+
+  rows = Enum.map(results, fn %{doc_id: id, score: score} ->
+    {_, text} = Enum.find(documents, fn {doc_id, _} -> doc_id == id end)
+    %{id: id, score: Float.round(score, 2), text: text}
+  end)
+
+  Kino.DataTable.new(rows)
+else
+  "Enter a query above"
+end
+```
+
+## Saving and Loading Indexes
+
+Persist indexes to disk:
+
+```elixir
+# Save
+path = Path.join(System.tmp_dir!(), "stephen_demo_index")
+:ok = Stephen.save_index(index, path)
+IO.puts("Saved to #{path}")
+
+# Load
+{:ok, loaded_index} = Stephen.load_index(path)
+
+# Verify it works
+Stephen.search(encoder, loaded_index, "comedy", top_k: 1)
+```
+
+## Next Steps
+
+- See [Index Types](https://hexdocs.pm/stephen/index_types.html) for larger collections
+- See [Compression](https://hexdocs.pm/stephen/compression.html) for memory-constrained environments
+- See [Chunking](https://hexdocs.pm/stephen/chunking.html) for long documents
+
+## Cleanup
+
+```elixir
+# Clean up temp files
+File.rm_rf!(path)
+:ok
+```
