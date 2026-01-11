@@ -203,4 +203,44 @@ defmodule Stephen do
   """
   @spec search_with_prf(encoder(), index(), String.t(), keyword()) :: [search_result()]
   defdelegate search_with_prf(encoder, index, query, opts \\ []), to: Retriever
+
+  @doc """
+  Explains why a document scored the way it did for a query.
+
+  Returns detailed information about which query tokens matched which
+  document tokens, useful for debugging and understanding retrieval results.
+
+  ## Arguments
+    * `encoder` - Loaded encoder
+    * `query` - Query string
+    * `doc_text` - Document text
+
+  ## Returns
+    Map containing:
+    * `:score` - Total MaxSim score
+    * `:matches` - List of match details for each query token
+
+  ## Examples
+
+      explanation = Stephen.explain(encoder, "functional programming", "Elixir is functional")
+      # => %{
+      #   score: 15.2,
+      #   matches: [
+      #     %{query_token: "functional", doc_token: "functional", similarity: 0.95, ...},
+      #     ...
+      #   ]
+      # }
+
+      # Print formatted explanation
+      explanation |> Stephen.Scorer.format_explanation() |> IO.puts()
+  """
+  @spec explain(encoder(), String.t(), String.t()) :: map()
+  def explain(encoder, query, doc_text) do
+    query_emb = Encoder.encode_query(encoder, query)
+    doc_emb = Encoder.encode_document(encoder, doc_text)
+    query_tokens = Encoder.tokenize(encoder, query, type: :query)
+    doc_tokens = Encoder.tokenize(encoder, doc_text, type: :document)
+
+    Stephen.Scorer.explain(query_emb, doc_emb, query_tokens, doc_tokens)
+  end
 end

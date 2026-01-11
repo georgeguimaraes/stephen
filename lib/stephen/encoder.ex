@@ -386,6 +386,73 @@ defmodule Stephen.Encoder do
   @spec hidden_dim(encoder()) :: pos_integer()
   def hidden_dim(encoder), do: encoder.embedding_dim
 
+  @doc """
+  Tokenizes text and returns the token strings.
+
+  Useful for visualization and debugging. The tokens correspond to the
+  embeddings returned by `encode_query/2` or `encode_document/2`.
+
+  ## Options
+    * `:type` - `:query` or `:document` (default: `:document`)
+    * `:max_length` - Maximum tokens (defaults based on type)
+
+  ## Examples
+
+      tokens = Stephen.Encoder.tokenize(encoder, "hello world")
+      # => ["[CLS]", "[D]", "hello", "world", "[SEP]"]
+
+      tokens = Stephen.Encoder.tokenize(encoder, "hello", type: :query)
+      # => ["[CLS]", "[Q]", "hello", "[MASK]", ..., "[SEP]"]
+  """
+  @spec tokenize(encoder(), String.t(), keyword()) :: [String.t()]
+  def tokenize(encoder, text, opts \\ []) do
+    type = Keyword.get(opts, :type, :document)
+    native_tokenizer = encoder.tokenizer.native_tokenizer
+
+    max_length =
+      case type do
+        :query -> Keyword.get(opts, :max_length, encoder.max_query_length)
+        :document -> Keyword.get(opts, :max_length, encoder.max_doc_length)
+      end
+
+    marked_text =
+      case type do
+        :query -> @query_marker <> " " <> text
+        :document -> @doc_marker <> " " <> text
+      end
+
+    configured_tokenizer =
+      Bumblebee.configure(encoder.tokenizer, length: max_length, pad_direction: :right)
+
+    inputs = Bumblebee.apply_tokenizer(configured_tokenizer, marked_text)
+
+    attention_mask = inputs["attention_mask"]
+    input_ids = inputs["input_ids"]
+
+    mask =
+      case Nx.shape(attention_mask) do
+        {1, len} -> Nx.reshape(attention_mask, {len})
+        _ -> attention_mask
+      end
+
+    ids =
+      case Nx.shape(input_ids) do
+        {1, len} -> Nx.reshape(input_ids, {len})
+        _ -> input_ids
+      end
+
+    num_real_tokens = Nx.sum(mask) |> Nx.to_number() |> trunc()
+    real_ids = Nx.slice(ids, [0], [num_real_tokens]) |> Nx.to_flat_list()
+
+    # Convert token IDs back to strings
+    Enum.map(real_ids, fn id ->
+      case Tokenizers.Tokenizer.id_to_token(native_tokenizer, id) do
+        token when is_binary(token) -> token
+        _ -> "[UNK]"
+      end
+    end)
+  end
+
   # Encode a single text
   defp encode_single(encoder, text, max_length) do
     %{model: model, params: params, tokenizer: tokenizer, projection: projection} = encoder

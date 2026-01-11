@@ -120,6 +120,147 @@ defmodule Stephen.Scorer do
   end
 
   @doc """
+  Explains the MaxSim scoring between query and document.
+
+  Returns detailed information about which query tokens matched which
+  document tokens, useful for debugging and understanding retrieval results.
+
+  ## Arguments
+    * `query_embeddings` - Query token embeddings
+    * `doc_embeddings` - Document token embeddings
+    * `query_tokens` - List of query token strings
+    * `doc_tokens` - List of document token strings
+
+  ## Returns
+    Map containing:
+    * `:score` - Total MaxSim score
+    * `:matches` - List of match details for each query token, including:
+      * `:query_token` - Query token string
+      * `:query_index` - Query token index
+      * `:doc_token` - Best matching document token string
+      * `:doc_index` - Best matching document token index
+      * `:similarity` - Cosine similarity (contribution to score)
+
+  ## Examples
+
+      query_emb = Encoder.encode_query(encoder, "functional programming")
+      doc_emb = Encoder.encode_document(encoder, "Elixir is functional")
+      query_tokens = Encoder.tokenize(encoder, "functional programming", type: :query)
+      doc_tokens = Encoder.tokenize(encoder, "Elixir is functional")
+
+      explanation = Scorer.explain(query_emb, doc_emb, query_tokens, doc_tokens)
+      # => %{
+      #   score: 15.2,
+      #   matches: [
+      #     %{query_token: "functional", doc_token: "functional", similarity: 0.95, ...},
+      #     %{query_token: "programming", doc_token: "Elixir", similarity: 0.42, ...},
+      #     ...
+      #   ]
+      # }
+  """
+  @spec explain(Nx.Tensor.t(), Nx.Tensor.t(), [String.t()], [String.t()]) :: map()
+  def explain(query_embeddings, doc_embeddings, query_tokens, doc_tokens) do
+    sim_matrix = similarity_matrix(query_embeddings, doc_embeddings)
+
+    # For each query token, find the best matching doc token
+    max_similarities = Nx.reduce_max(sim_matrix, axes: [1])
+    best_doc_indices = Nx.argmax(sim_matrix, axis: 1)
+
+    max_sims_list = Nx.to_flat_list(max_similarities)
+    best_indices_list = Nx.to_flat_list(best_doc_indices)
+
+    matches =
+      query_tokens
+      |> Enum.with_index()
+      |> Enum.zip(Enum.zip(max_sims_list, best_indices_list))
+      |> Enum.map(fn {{query_token, query_idx}, {similarity, doc_idx}} ->
+        doc_token =
+          if doc_idx < length(doc_tokens) do
+            Enum.at(doc_tokens, doc_idx)
+          else
+            "[OUT_OF_RANGE]"
+          end
+
+        %{
+          query_token: query_token,
+          query_index: query_idx,
+          doc_token: doc_token,
+          doc_index: doc_idx,
+          similarity: similarity
+        }
+      end)
+
+    score = Enum.sum(max_sims_list)
+
+    %{
+      score: score,
+      matches: matches
+    }
+  end
+
+  @doc """
+  Formats an explanation for display.
+
+  Takes the output of `explain/4` and returns a human-readable string.
+
+  ## Options
+    * `:top_k` - Only show top-k matches by similarity (default: all)
+    * `:skip_special` - Skip special tokens like [CLS], [SEP], [MASK] (default: true)
+    * `:min_similarity` - Only show matches above threshold (default: 0.0)
+
+  ## Examples
+
+      explanation = Scorer.explain(query_emb, doc_emb, query_tokens, doc_tokens)
+      IO.puts(Scorer.format_explanation(explanation))
+      # Score: 15.20
+      #
+      # Query Token          -> Doc Token            Similarity
+      # --------------------------------------------------------
+      # functional           -> functional           0.95
+      # programming          -> language             0.72
+      # ...
+  """
+  @spec format_explanation(map(), keyword()) :: String.t()
+  def format_explanation(explanation, opts \\ []) do
+    top_k = Keyword.get(opts, :top_k, nil)
+    skip_special = Keyword.get(opts, :skip_special, true)
+    min_sim = Keyword.get(opts, :min_similarity, 0.0)
+
+    special_tokens = MapSet.new(["[CLS]", "[SEP]", "[PAD]", "[MASK]", "[Q]", "[D]"])
+
+    matches =
+      explanation.matches
+      |> Enum.reject(fn m ->
+        skip_special and MapSet.member?(special_tokens, m.query_token)
+      end)
+      |> Enum.filter(fn m -> m.similarity >= min_sim end)
+      |> Enum.sort_by(& &1.similarity, :desc)
+
+    matches = if top_k, do: Enum.take(matches, top_k), else: matches
+
+    header = "Score: #{Float.round(explanation.score, 2)}\n\n"
+
+    col_header =
+      String.pad_trailing("Query Token", 20) <>
+        " -> " <>
+        String.pad_trailing("Doc Token", 20) <> " Similarity\n"
+
+    separator = String.duplicate("-", 60) <> "\n"
+
+    rows =
+      matches
+      |> Enum.map(fn m ->
+        q = String.pad_trailing(String.slice(m.query_token, 0, 20), 20)
+        d = String.pad_trailing(String.slice(m.doc_token, 0, 20), 20)
+        s = Float.round(m.similarity, 4)
+        "#{q} -> #{d} #{s}"
+      end)
+      |> Enum.join("\n")
+
+    header <> col_header <> separator <> rows
+  end
+
+  @doc """
   Normalizes a MaxSim score to [0, 1] range.
 
   Since embeddings are L2-normalized, the maximum per-token similarity is 1.0.

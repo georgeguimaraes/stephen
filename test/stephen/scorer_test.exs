@@ -359,4 +359,127 @@ defmodule Stephen.ScorerTest do
       assert hd(fused_k10).score > hd(fused_k60).score
     end
   end
+
+  describe "explain/4" do
+    test "returns score and matches" do
+      query = Nx.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+      doc = Nx.tensor([[1.0, 0.0, 0.0], [0.5, 0.5, 0.0], [0.0, 1.0, 0.0]])
+
+      query_tokens = ["hello", "world"]
+      doc_tokens = ["hello", "there", "world"]
+
+      explanation = Scorer.explain(query, doc, query_tokens, doc_tokens)
+
+      assert is_float(explanation.score)
+      assert length(explanation.matches) == 2
+
+      first_match = hd(explanation.matches)
+      assert first_match.query_token == "hello"
+      assert first_match.query_index == 0
+      assert first_match.doc_token == "hello"
+      assert first_match.doc_index == 0
+      assert_in_delta first_match.similarity, 1.0, 0.01
+    end
+
+    test "finds best matching doc token for each query token" do
+      query = Nx.tensor([[0.0, 1.0, 0.0]])
+      doc = Nx.tensor([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]])
+
+      explanation = Scorer.explain(query, doc, ["query"], ["a", "b", "c"])
+
+      match = hd(explanation.matches)
+      # Query matches doc token at index 2 ("c")
+      assert match.doc_index == 2
+      assert match.doc_token == "c"
+    end
+  end
+
+  describe "format_explanation/2" do
+    test "formats explanation as string" do
+      explanation = %{
+        score: 15.5,
+        matches: [
+          %{
+            query_token: "hello",
+            query_index: 0,
+            doc_token: "hello",
+            doc_index: 0,
+            similarity: 0.95
+          },
+          %{
+            query_token: "world",
+            query_index: 1,
+            doc_token: "earth",
+            doc_index: 2,
+            similarity: 0.72
+          }
+        ]
+      }
+
+      output = Scorer.format_explanation(explanation)
+
+      assert output =~ "Score: 15.5"
+      assert output =~ "hello"
+      assert output =~ "0.95"
+    end
+
+    test "skips special tokens by default" do
+      explanation = %{
+        score: 10.0,
+        matches: [
+          %{
+            query_token: "[CLS]",
+            query_index: 0,
+            doc_token: "[CLS]",
+            doc_index: 0,
+            similarity: 1.0
+          },
+          %{
+            query_token: "hello",
+            query_index: 1,
+            doc_token: "hello",
+            doc_index: 1,
+            similarity: 0.9
+          }
+        ]
+      }
+
+      output = Scorer.format_explanation(explanation)
+
+      refute output =~ "[CLS]"
+      assert output =~ "hello"
+    end
+
+    test "respects top_k option" do
+      explanation = %{
+        score: 10.0,
+        matches: [
+          %{query_token: "a", query_index: 0, doc_token: "x", doc_index: 0, similarity: 0.9},
+          %{query_token: "b", query_index: 1, doc_token: "y", doc_index: 1, similarity: 0.8},
+          %{query_token: "c", query_index: 2, doc_token: "z", doc_index: 2, similarity: 0.7}
+        ]
+      }
+
+      output = Scorer.format_explanation(explanation, top_k: 2)
+
+      assert output =~ "0.9"
+      assert output =~ "0.8"
+      refute output =~ "0.7"
+    end
+
+    test "respects min_similarity option" do
+      explanation = %{
+        score: 10.0,
+        matches: [
+          %{query_token: "a", query_index: 0, doc_token: "x", doc_index: 0, similarity: 0.9},
+          %{query_token: "b", query_index: 1, doc_token: "y", doc_index: 1, similarity: 0.3}
+        ]
+      }
+
+      output = Scorer.format_explanation(explanation, min_similarity: 0.5)
+
+      assert output =~ "0.9"
+      refute output =~ "0.3"
+    end
+  end
 end
