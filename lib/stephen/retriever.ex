@@ -179,6 +179,83 @@ defmodule Stephen.Retriever do
   end
 
   @doc """
+  Reranks raw text documents against a query without requiring an index.
+
+  Documents are encoded on-the-fly and scored using ColBERT's MaxSim.
+  Useful for reranking results from external sources like BM25 or Elasticsearch.
+
+  ## Arguments
+    * `encoder` - Loaded encoder
+    * `query` - Query string
+    * `documents` - List of `{id, text}` tuples to rerank
+
+  ## Options
+    * `:top_k` - Number of results to return (default: all)
+
+  ## Returns
+    List of `%{doc_id: term(), score: float()}` sorted by score descending.
+
+  ## Examples
+
+      candidates = [
+        {"doc1", "Elixir is a dynamic, functional language"},
+        {"doc2", "Python is a popular programming language"}
+      ]
+      results = rerank_texts(encoder, "functional programming", candidates)
+  """
+  @spec rerank_texts(Encoder.encoder(), String.t(), [{term(), String.t()}], keyword()) ::
+          [search_result()]
+  def rerank_texts(encoder, query, documents, opts \\ []) do
+    top_k = Keyword.get(opts, :top_k, length(documents))
+    query_embeddings = Encoder.encode_query(encoder, query)
+
+    documents
+    |> Enum.map(fn {doc_id, text} ->
+      doc_embeddings = Encoder.encode_document(encoder, text)
+      score = Scorer.max_sim(query_embeddings, doc_embeddings)
+      %{doc_id: doc_id, score: score}
+    end)
+    |> Enum.sort_by(& &1.score, :desc)
+    |> Enum.take(top_k)
+  end
+
+  @doc """
+  Reranks raw text documents with pre-computed query embeddings.
+
+  Useful when reranking multiple candidate sets with the same query.
+
+  ## Arguments
+    * `query_embeddings` - Pre-computed query embeddings tensor
+    * `encoder` - Loaded encoder (for encoding documents)
+    * `documents` - List of `{id, text}` tuples to rerank
+
+  ## Options
+    * `:top_k` - Number of results to return (default: all)
+
+  ## Returns
+    List of `%{doc_id: term(), score: float()}` sorted by score descending.
+  """
+  @spec rerank_texts_with_embeddings(
+          Nx.Tensor.t(),
+          Encoder.encoder(),
+          [{term(), String.t()}],
+          keyword()
+        ) ::
+          [search_result()]
+  def rerank_texts_with_embeddings(query_embeddings, encoder, documents, opts \\ []) do
+    top_k = Keyword.get(opts, :top_k, length(documents))
+
+    documents
+    |> Enum.map(fn {doc_id, text} ->
+      doc_embeddings = Encoder.encode_document(encoder, text)
+      score = Scorer.max_sim(query_embeddings, doc_embeddings)
+      %{doc_id: doc_id, score: score}
+    end)
+    |> Enum.sort_by(& &1.score, :desc)
+    |> Enum.take(top_k)
+  end
+
+  @doc """
   Searches for documents matching multiple queries.
 
   Efficiently encodes all queries together, then searches the index

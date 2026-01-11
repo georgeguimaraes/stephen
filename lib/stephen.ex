@@ -120,6 +120,45 @@ defmodule Stephen do
   defdelegate rerank(encoder, index, query, doc_ids), to: Retriever
 
   @doc """
+  Reranks raw text documents against a query without requiring an index.
+
+  This is useful for reranking results from external sources like BM25,
+  Elasticsearch, or any other retrieval system. Documents are encoded
+  on-the-fly and scored using ColBERT's MaxSim.
+
+  ## Arguments
+    * `encoder` - Loaded encoder
+    * `query` - Query string
+    * `documents` - List of `{id, text}` tuples to rerank
+
+  ## Options
+    * `:top_k` - Number of results to return (default: all)
+
+  ## Returns
+    List of `%{doc_id: term(), score: float()}` sorted by score descending.
+
+  ## Examples
+
+      # Rerank search results from Elasticsearch
+      candidates = [
+        {"doc1", "Elixir is a dynamic, functional language"},
+        {"doc2", "Python is a popular programming language"},
+        {"doc3", "Erlang powers distributed systems"}
+      ]
+      results = Stephen.rerank_texts(encoder, "functional programming", candidates)
+      # => [%{doc_id: "doc1", score: 18.5}, %{doc_id: "doc2", score: 12.1}, ...]
+
+      # Return only top 2
+      results = Stephen.rerank_texts(encoder, query, candidates, top_k: 2)
+  """
+  @spec rerank_texts(encoder(), String.t(), [{doc_id(), String.t()}], keyword()) :: [
+          search_result()
+        ]
+  def rerank_texts(encoder, query, documents, opts \\ []) do
+    Retriever.rerank_texts(encoder, query, documents, opts)
+  end
+
+  @doc """
   Saves an index to disk.
 
   ## Examples

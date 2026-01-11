@@ -141,4 +141,39 @@ defmodule Stephen.RetrieverTest do
       assert hd(results).doc_id == "doc1"
     end
   end
+
+  describe "rerank_texts/4" do
+    @tag :slow
+    test "reranks raw text documents without an index" do
+      {:ok, encoder} = Stephen.Encoder.load()
+
+      documents = [
+        {"doc1", "Elixir is a dynamic, functional programming language"},
+        {"doc2", "Python is used for machine learning and data science"},
+        {"doc3", "JavaScript runs in web browsers"}
+      ]
+
+      results = Retriever.rerank_texts(encoder, "functional programming language", documents)
+
+      assert length(results) == 3
+      # doc1 should rank highest (mentions functional programming language)
+      assert hd(results).doc_id == "doc1"
+      assert is_float(hd(results).score)
+    end
+
+    @tag :slow
+    test "respects top_k option" do
+      {:ok, encoder} = Stephen.Encoder.load()
+
+      documents = [
+        {"doc1", "The quick brown fox"},
+        {"doc2", "Jumps over the lazy dog"},
+        {"doc3", "Hello world example"}
+      ]
+
+      results = Retriever.rerank_texts(encoder, "fox jumping", documents, top_k: 1)
+
+      assert length(results) == 1
+    end
+  end
 end
