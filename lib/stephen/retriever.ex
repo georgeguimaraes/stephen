@@ -206,17 +206,8 @@ defmodule Stephen.Retriever do
   @spec rerank_texts(Encoder.encoder(), String.t(), [{term(), String.t()}], keyword()) ::
           [search_result()]
   def rerank_texts(encoder, query, documents, opts \\ []) do
-    top_k = Keyword.get(opts, :top_k, length(documents))
     query_embeddings = Encoder.encode_query(encoder, query)
-
-    documents
-    |> Enum.map(fn {doc_id, text} ->
-      doc_embeddings = Encoder.encode_document(encoder, text)
-      score = Scorer.max_sim(query_embeddings, doc_embeddings)
-      %{doc_id: doc_id, score: score}
-    end)
-    |> Enum.sort_by(& &1.score, :desc)
-    |> Enum.take(top_k)
+    rerank_texts_with_embeddings(query_embeddings, encoder, documents, opts)
   end
 
   @doc """
