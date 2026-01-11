@@ -1,4 +1,4 @@
-defmodule StephenColbertTest do
+defmodule StephenTest do
   use ExUnit.Case
 
   @moduletag :integration
@@ -9,8 +9,8 @@ defmodule StephenColbertTest do
       # This test requires downloading model weights, so skip in CI
       # To run: mix test --include slow
 
-      {:ok, encoder} = StephenColbert.load_encoder()
-      index = StephenColbert.new_index(encoder)
+      {:ok, encoder} = Stephen.load_encoder()
+      index = Stephen.new_index(encoder)
 
       documents = [
         {"doc1", "The quick brown fox jumps over the lazy dog"},
@@ -18,10 +18,10 @@ defmodule StephenColbertTest do
         {"doc3", "Elixir is a functional programming language built on Erlang"}
       ]
 
-      index = StephenColbert.index(encoder, index, documents)
+      index = Stephen.index(encoder, index, documents)
 
       # Search for programming-related content
-      results = StephenColbert.search(encoder, index, "programming languages", top_k: 3)
+      results = Stephen.search(encoder, index, "programming languages", top_k: 3)
 
       assert length(results) == 3
       assert is_float(hd(results).score)
@@ -33,8 +33,8 @@ defmodule StephenColbertTest do
 
     @tag :slow
     test "reranks documents" do
-      {:ok, encoder} = StephenColbert.load_encoder()
-      index = StephenColbert.new_index(encoder)
+      {:ok, encoder} = Stephen.load_encoder()
+      index = Stephen.new_index(encoder)
 
       documents = [
         {"doc1", "Python is popular for data science"},
@@ -42,11 +42,11 @@ defmodule StephenColbertTest do
         {"doc3", "JavaScript runs in web browsers"}
       ]
 
-      index = StephenColbert.index(encoder, index, documents)
+      index = Stephen.index(encoder, index, documents)
 
       # Rerank specific documents
       results =
-        StephenColbert.rerank(encoder, index, "concurrent systems", ["doc1", "doc2", "doc3"])
+        Stephen.rerank(encoder, index, "concurrent systems", ["doc1", "doc2", "doc3"])
 
       assert length(results) == 3
       # Elixir doc should rank highest for "concurrent systems"

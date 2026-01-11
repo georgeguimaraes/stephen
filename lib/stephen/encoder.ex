@@ -1,4 +1,4 @@
-defmodule StephenColbert.Encoder do
+defmodule Stephen.Encoder do
   @moduledoc """
   Encodes text into per-token embeddings using BERT.
 
@@ -28,8 +28,8 @@ defmodule StephenColbert.Encoder do
 
   ## Examples
 
-      {:ok, encoder} = StephenColbert.Encoder.load()
-      {:ok, encoder} = StephenColbert.Encoder.load(model: "bert-base-uncased")
+      {:ok, encoder} = Stephen.Encoder.load()
+      {:ok, encoder} = Stephen.Encoder.load(model: "bert-base-uncased")
   """
   @spec load(keyword()) :: {:ok, encoder()} | {:error, term()}
   def load(opts \\ []) do

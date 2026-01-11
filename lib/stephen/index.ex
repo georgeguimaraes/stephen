@@ -1,4 +1,4 @@
-defmodule StephenColbert.Index do
+defmodule Stephen.Index do
   @moduledoc """
   Manages the ColBERT document index.
 

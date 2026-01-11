@@ -1,4 +1,4 @@
-# StephenColbert - ColBERT for Elixir
+# Stephen - ColBERT for Elixir
 
 Build a ColBERT-style neural retrieval library for Elixir.
 
@@ -20,29 +20,29 @@ ColBERT (Contextualized Late Interaction over BERT) is a neural retrieval model 
 
 ### Modules to Build
 
-1. **StephenColbert.Encoder**
+1. **Stephen.Encoder**
    - Load BERT model via Bumblebee
    - Encode text to per-token embeddings (not pooled)
    - Add [Q] marker for queries, [D] marker for documents
    - Normalize embeddings
 
-2. **StephenColbert.Scorer**
+2. **Stephen.Scorer**
    - Implement MaxSim: for each query token, find max similarity to any doc token
    - Sum the max similarities for final score
    - Use Nx for efficient tensor operations
 
-3. **StephenColbert.Index**
+3. **Stephen.Index**
    - Store document embeddings with doc_id mapping
    - Build HNSWLib index over token embeddings
    - Support adding documents incrementally
    - Persist/load index to disk
 
-4. **StephenColbert.Retriever**
+4. **Stephen.Retriever**
    - Query the index: encode query, search ANN, aggregate by doc_id
    - Return top-k documents with scores
    - Support reranking with full MaxSim after ANN retrieval
 
-5. **StephenColbert** (main module)
+5. **Stephen** (main module)
    - High-level API: index/search/rerank
    - Configuration options (model name, embedding dim, etc.)
 

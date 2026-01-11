@@ -1,7 +1,7 @@
-defmodule StephenColbert.IndexTest do
+defmodule Stephen.IndexTest do
   use ExUnit.Case, async: true
 
-  alias StephenColbert.Index
+  alias Stephen.Index
 
   @embedding_dim 4
 

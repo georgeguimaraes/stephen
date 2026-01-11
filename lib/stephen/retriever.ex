@@ -1,4 +1,4 @@
-defmodule StephenColbert.Retriever do
+defmodule Stephen.Retriever do
   @moduledoc """
   High-level retrieval operations combining encoding, indexing, and scoring.
 
@@ -8,7 +8,7 @@ defmodule StephenColbert.Retriever do
   3. Rerank candidates using full MaxSim scoring
   """
 
-  alias StephenColbert.{Encoder, Index, Scorer}
+  alias Stephen.{Encoder, Index, Scorer}
 
   @type search_result :: %{
           doc_id: term(),

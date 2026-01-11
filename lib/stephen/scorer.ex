@@ -1,4 +1,4 @@
-defmodule StephenColbert.Scorer do
+defmodule Stephen.Scorer do
   @moduledoc """
   Implements ColBERT's late interaction scoring mechanism (MaxSim).
 
@@ -27,7 +27,7 @@ defmodule StephenColbert.Scorer do
 
   ## Examples
 
-      score = StephenColbert.Scorer.max_sim(query_emb, doc_emb)
+      score = Stephen.Scorer.max_sim(query_emb, doc_emb)
   """
   @spec max_sim(Nx.Tensor.t(), Nx.Tensor.t()) :: score()
   def max_sim(query_embeddings, doc_embeddings) do

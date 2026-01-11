@@ -1,7 +1,7 @@
-defmodule StephenColbert.ScorerTest do
+defmodule Stephen.ScorerTest do
   use ExUnit.Case, async: true
 
-  alias StephenColbert.Scorer
+  alias Stephen.Scorer
 
   describe "max_sim/2" do
     test "computes max similarity for identical embeddings" do
