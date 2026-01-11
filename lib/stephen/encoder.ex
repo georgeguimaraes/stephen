@@ -104,7 +104,9 @@ defmodule Stephen.Encoder do
   weights are automatically loaded from the model's SafeTensors file. The base model
   type is auto-detected from config.json, but can be overridden with `:base_module`.
 
-  Supported base models: BERT, RoBERTa, DistilBERT, ALBERT, XLM-RoBERTa.
+  Supported base models (auto-detected): BERT, RoBERTa, DistilBERT, ALBERT, XLM-RoBERTa.
+  Note: Only BERT has been tested with official ColBERT weights. Other architectures
+  should work if the model provides compatible weights.
 
   ## Examples
 
