@@ -205,4 +205,135 @@ defmodule Stephen.Scorer do
       end)
     end
   end
+
+  # Multi-Query Fusion Functions
+
+  @doc """
+  Fuses scores from multiple queries using the specified strategy.
+
+  Combines scores from multiple query variants (e.g., query expansions,
+  reformulations) into a single ranking.
+
+  ## Arguments
+    * `query_embeddings_list` - List of query embedding tensors
+    * `doc_embeddings` - Document embedding tensor
+    * `strategy` - Fusion strategy: `:max`, `:avg`, or `{:weighted, weights}`
+
+  ## Strategies
+    * `:max` - Takes the maximum score across all queries (good for OR semantics)
+    * `:avg` - Averages scores across queries (good for ensemble)
+    * `{:weighted, weights}` - Weighted average with custom weights per query
+
+  ## Examples
+
+      # Query expansion: original + synonyms
+      queries = [
+        Encoder.encode_query(encoder, "machine learning"),
+        Encoder.encode_query(encoder, "ML algorithms"),
+        Encoder.encode_query(encoder, "artificial intelligence")
+      ]
+      score = Scorer.fuse_queries(queries, doc_emb, :max)
+
+      # Weighted fusion: prioritize original query
+      score = Scorer.fuse_queries(queries, doc_emb, {:weighted, [0.6, 0.2, 0.2]})
+  """
+  @spec fuse_queries([Nx.Tensor.t()], Nx.Tensor.t(), :max | :avg | {:weighted, [float()]}) ::
+          score()
+  def fuse_queries([], _doc_embeddings, _strategy), do: 0.0
+
+  def fuse_queries(query_embeddings_list, doc_embeddings, strategy) do
+    scores = Enum.map(query_embeddings_list, &max_sim(&1, doc_embeddings))
+
+    case strategy do
+      :max ->
+        Enum.max(scores)
+
+      :avg ->
+        Enum.sum(scores) / length(scores)
+
+      {:weighted, weights} when length(weights) == length(scores) ->
+        scores
+        |> Enum.zip(weights)
+        |> Enum.map(fn {score, weight} -> score * weight end)
+        |> Enum.sum()
+    end
+  end
+
+  @doc """
+  Fuses and ranks documents using multiple queries.
+
+  Scores each document against all queries and combines using the specified
+  fusion strategy, returning ranked results.
+
+  ## Arguments
+    * `query_embeddings_list` - List of query embedding tensors
+    * `doc_embeddings_list` - List of `{doc_id, embeddings}` tuples
+    * `strategy` - Fusion strategy: `:max`, `:avg`, or `{:weighted, weights}`
+
+  ## Returns
+    List of `%{doc_id: term(), score: float()}` maps sorted by score descending.
+
+  ## Examples
+
+      queries = [query1_emb, query2_emb]
+      docs = [{"doc1", emb1}, {"doc2", emb2}]
+      results = Scorer.fuse_and_rank(queries, docs, :avg)
+  """
+  @spec fuse_and_rank(
+          [Nx.Tensor.t()],
+          [{term(), Nx.Tensor.t()}],
+          :max | :avg | {:weighted, [float()]}
+        ) ::
+          [map()]
+  def fuse_and_rank(query_embeddings_list, doc_embeddings_list, strategy) do
+    doc_embeddings_list
+    |> Enum.map(fn {doc_id, doc_emb} ->
+      score = fuse_queries(query_embeddings_list, doc_emb, strategy)
+      %{doc_id: doc_id, score: score}
+    end)
+    |> Enum.sort_by(& &1.score, :desc)
+  end
+
+  @doc """
+  Reciprocal Rank Fusion (RRF) for combining multiple ranked lists.
+
+  RRF is a robust fusion method that combines rankings rather than raw scores,
+  making it effective when score distributions differ across queries.
+
+  ## Arguments
+    * `ranked_lists` - List of ranked result lists, each `[%{doc_id: term(), score: float()}, ...]`
+    * `k` - Smoothing constant (default: 60). Higher values reduce the impact of top ranks.
+
+  ## Returns
+    Fused results sorted by RRF score descending.
+
+  ## Examples
+
+      results1 = Retriever.search_with_embeddings(query1, index)
+      results2 = Retriever.search_with_embeddings(query2, index)
+      fused = Scorer.reciprocal_rank_fusion([results1, results2])
+
+  ## References
+    Cormack, G. V., Clarke, C. L., & Buettcher, S. (2009).
+    Reciprocal rank fusion outperforms condorcet and individual rank learning methods.
+  """
+  @spec reciprocal_rank_fusion([[map()]], pos_integer()) :: [map()]
+  def reciprocal_rank_fusion(ranked_lists, k \\ 60)
+  def reciprocal_rank_fusion([], _k), do: []
+
+  def reciprocal_rank_fusion(ranked_lists, k) do
+    ranked_lists
+    |> Enum.flat_map(fn results ->
+      results
+      |> Enum.with_index(1)
+      |> Enum.map(fn {result, rank} ->
+        {result.doc_id, 1.0 / (k + rank)}
+      end)
+    end)
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+    |> Enum.map(fn {doc_id, rrf_scores} ->
+      %{doc_id: doc_id, score: Enum.sum(rrf_scores)}
+    end)
+    |> Enum.sort_by(& &1.score, :desc)
+  end
 end

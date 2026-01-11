@@ -215,4 +215,148 @@ defmodule Stephen.ScorerTest do
       assert Enum.at(normalized, 1).score == 1.0
     end
   end
+
+  describe "fuse_queries/3" do
+    test "fuses with :max strategy" do
+      query1 = Nx.tensor([[1.0, 0.0, 0.0]])
+      query2 = Nx.tensor([[0.0, 1.0, 0.0]])
+      doc = Nx.tensor([[1.0, 0.0, 0.0]])
+
+      score = Scorer.fuse_queries([query1, query2], doc, :max)
+
+      # query1 matches perfectly (1.0), query2 doesn't match (0.0)
+      # max = 1.0
+      assert_in_delta score, 1.0, 0.01
+    end
+
+    test "fuses with :avg strategy" do
+      query1 = Nx.tensor([[1.0, 0.0, 0.0]])
+      query2 = Nx.tensor([[0.0, 1.0, 0.0]])
+      doc = Nx.tensor([[1.0, 0.0, 0.0]])
+
+      score = Scorer.fuse_queries([query1, query2], doc, :avg)
+
+      # query1 matches perfectly (1.0), query2 doesn't match (0.0)
+      # avg = 0.5
+      assert_in_delta score, 0.5, 0.01
+    end
+
+    test "fuses with :weighted strategy" do
+      query1 = Nx.tensor([[1.0, 0.0, 0.0]])
+      query2 = Nx.tensor([[0.0, 1.0, 0.0]])
+      doc = Nx.tensor([[1.0, 0.0, 0.0]])
+
+      # Weight query1 at 0.8, query2 at 0.2
+      score = Scorer.fuse_queries([query1, query2], doc, {:weighted, [0.8, 0.2]})
+
+      # 1.0 * 0.8 + 0.0 * 0.2 = 0.8
+      assert_in_delta score, 0.8, 0.01
+    end
+
+    test "handles empty query list" do
+      doc = Nx.tensor([[1.0, 0.0, 0.0]])
+      assert Scorer.fuse_queries([], doc, :max) == 0.0
+    end
+  end
+
+  describe "fuse_and_rank/3" do
+    test "ranks documents by fused scores" do
+      query1 = Nx.tensor([[1.0, 0.0, 0.0]])
+      query2 = Nx.tensor([[0.0, 1.0, 0.0]])
+
+      docs = [
+        {"doc_x", Nx.tensor([[1.0, 0.0, 0.0]])},
+        {"doc_y", Nx.tensor([[0.0, 1.0, 0.0]])},
+        {"doc_both", Nx.tensor([[0.707, 0.707, 0.0]])}
+      ]
+
+      results = Scorer.fuse_and_rank([query1, query2], docs, :avg)
+
+      assert length(results) == 3
+      # doc_both should rank highest with avg strategy (matches both queries partially)
+      assert hd(results).doc_id == "doc_both"
+    end
+
+    test "respects :max strategy for ranking" do
+      query1 = Nx.tensor([[1.0, 0.0, 0.0]])
+      query2 = Nx.tensor([[0.0, 0.0, 1.0]])
+
+      docs = [
+        {"doc_a", Nx.tensor([[1.0, 0.0, 0.0]])},
+        {"doc_b", Nx.tensor([[0.5, 0.5, 0.0]])}
+      ]
+
+      results = Scorer.fuse_and_rank([query1, query2], docs, :max)
+
+      # doc_a matches query1 perfectly (max=1.0)
+      # doc_b matches query1 partially (max~=0.707)
+      assert hd(results).doc_id == "doc_a"
+    end
+  end
+
+  describe "reciprocal_rank_fusion/2" do
+    test "combines ranked lists" do
+      list1 = [
+        %{doc_id: "a", score: 10.0},
+        %{doc_id: "b", score: 8.0},
+        %{doc_id: "c", score: 6.0}
+      ]
+
+      list2 = [
+        %{doc_id: "b", score: 10.0},
+        %{doc_id: "a", score: 8.0},
+        %{doc_id: "c", score: 6.0}
+      ]
+
+      fused = Scorer.reciprocal_rank_fusion([list1, list2])
+
+      assert length(fused) == 3
+      # Both a and b appear in top 2 of both lists, should have highest RRF scores
+      top_ids = Enum.take(fused, 2) |> Enum.map(& &1.doc_id)
+      assert "a" in top_ids
+      assert "b" in top_ids
+    end
+
+    test "handles empty list" do
+      assert Scorer.reciprocal_rank_fusion([]) == []
+    end
+
+    test "handles single ranked list" do
+      list = [
+        %{doc_id: "a", score: 10.0},
+        %{doc_id: "b", score: 8.0}
+      ]
+
+      fused = Scorer.reciprocal_rank_fusion([list])
+
+      assert length(fused) == 2
+      # Ranking should be preserved
+      assert hd(fused).doc_id == "a"
+    end
+
+    test "handles documents appearing in only one list" do
+      list1 = [%{doc_id: "a", score: 10.0}]
+      list2 = [%{doc_id: "b", score: 10.0}]
+
+      fused = Scorer.reciprocal_rank_fusion([list1, list2])
+
+      assert length(fused) == 2
+      doc_ids = Enum.map(fused, & &1.doc_id)
+      assert "a" in doc_ids
+      assert "b" in doc_ids
+    end
+
+    test "custom k parameter affects scores" do
+      list = [
+        %{doc_id: "a", score: 10.0},
+        %{doc_id: "b", score: 8.0}
+      ]
+
+      fused_k60 = Scorer.reciprocal_rank_fusion([list], 60)
+      fused_k10 = Scorer.reciprocal_rank_fusion([list], 10)
+
+      # Lower k gives higher RRF scores
+      assert hd(fused_k10).score > hd(fused_k60).score
+    end
+  end
 end
