@@ -125,6 +125,32 @@ results = Stephen.search(encoder, index, query,
 | `:candidates_per_token` | 50 | ANN candidates (Index) |
 | `:nprobe` | 32 | Centroids to probe (PLAID) |
 
+## PRF Options
+
+Pseudo-relevance feedback expands queries using top-ranked documents:
+
+```elixir
+results = Stephen.search_with_prf(encoder, index, query,
+  top_k: 10,
+  feedback_docs: 3,
+  expansion_tokens: 10,
+  expansion_weight: 0.5
+)
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `:top_k` | 10 | Final results to return |
+| `:feedback_docs` | 3 | Documents for feedback |
+| `:expansion_tokens` | 10 | Tokens to add from feedback |
+| `:expansion_weight` | 0.5 | Weight for expansion vs original |
+
+Tuning tips:
+
+- More `feedback_docs` adds diversity but may add noise
+- Higher `expansion_weight` emphasizes expansion over original query
+- More `expansion_tokens` broadens matching but may reduce precision
+
 ## GPU Acceleration
 
 Enable EXLA for GPU acceleration:

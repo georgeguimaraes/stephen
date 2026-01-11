@@ -103,3 +103,35 @@ Both queries and documents are prefixed with markers:
 - Documents: `[D]` prefix
 
 These help the model distinguish query vs document context during encoding.
+
+## Pseudo-Relevance Feedback (PRF)
+
+PRF improves recall by expanding the query with information from top-ranked documents:
+
+```
+1. Initial search with original query
+2. Take top-k documents as "pseudo-relevant"
+3. Extract token embeddings that add new information
+4. Combine with original query embeddings
+5. Re-search with expanded query
+```
+
+The expansion token selection uses a relevance × novelty score: tokens should be similar enough to the query to be relevant, but different enough to add new matching capability.
+
+```elixir
+# PRF search with default parameters
+results = Stephen.search_with_prf(encoder, index, "machine learning")
+
+# Custom PRF configuration
+results = Stephen.search_with_prf(encoder, index, query,
+  feedback_docs: 5,        # Documents for feedback
+  expansion_tokens: 15,    # Tokens to add
+  expansion_weight: 0.3    # Weight vs original query
+)
+```
+
+PRF is useful when:
+
+- Users provide short or ambiguous queries
+- You want to find documents with related but different terminology
+- Recall is more important than precision

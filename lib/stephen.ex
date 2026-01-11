@@ -177,4 +177,30 @@ defmodule Stephen do
   """
   @spec load_index(Path.t()) :: {:ok, index()} | {:error, term()}
   defdelegate load_index(path), to: Index, as: :load
+
+  @doc """
+  Searches with pseudo-relevance feedback (PRF) for query expansion.
+
+  PRF improves recall by expanding the query with information from
+  top-ranked documents. Useful when you want to find more relevant
+  documents that may not match the exact query terms.
+
+  ## Options
+    * `:top_k` - Final results to return (default: 10)
+    * `:feedback_docs` - Number of docs for feedback (default: 3)
+    * `:expansion_tokens` - Tokens to add from feedback (default: 10)
+    * `:expansion_weight` - Weight for expansion vs original (default: 0.5)
+
+  ## Examples
+
+      results = Stephen.search_with_prf(encoder, index, "machine learning")
+
+      # Tune PRF parameters
+      results = Stephen.search_with_prf(encoder, index, query,
+        feedback_docs: 5,
+        expansion_weight: 0.3
+      )
+  """
+  @spec search_with_prf(encoder(), index(), String.t(), keyword()) :: [search_result()]
+  defdelegate search_with_prf(encoder, index, query, opts \\ []), to: Retriever
 end

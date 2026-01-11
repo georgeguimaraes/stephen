@@ -392,4 +392,160 @@ defmodule Stephen.Retriever do
   end
 
   defp get_embeddings_from_index(_index, _doc_id), do: nil
+
+  # Pseudo-Relevance Feedback (PRF)
+
+  @doc """
+  Searches with pseudo-relevance feedback (PRF) for query expansion.
+
+  PRF improves recall by expanding the query with information from
+  top-ranked documents. The process:
+
+  1. Run initial search with original query
+  2. Extract representative embeddings from top-k feedback documents
+  3. Combine original query with expansion embeddings
+  4. Re-run search with expanded query
+
+  ## Arguments
+    * `encoder` - Loaded encoder
+    * `index` - Document index
+    * `query` - Query string
+
+  ## Options
+    * `:top_k` - Final results to return (default: 10)
+    * `:feedback_docs` - Number of docs for feedback (default: 3)
+    * `:expansion_tokens` - Tokens to add from feedback (default: 10)
+    * `:expansion_weight` - Weight for expansion vs original (default: 0.5)
+
+  ## Returns
+    List of `%{doc_id: term(), score: float()}` sorted by score descending.
+
+  ## Examples
+
+      # Basic PRF search
+      results = Retriever.search_with_prf(encoder, index, "machine learning")
+
+      # Tune PRF parameters
+      results = Retriever.search_with_prf(encoder, index, query,
+        feedback_docs: 5,
+        expansion_tokens: 15,
+        expansion_weight: 0.3
+      )
+  """
+  @spec search_with_prf(
+          Encoder.encoder(),
+          Index.t() | Plaid.t() | CompressedIndex.t(),
+          String.t(),
+          keyword()
+        ) :: [search_result()]
+  def search_with_prf(encoder, index, query, opts \\ []) do
+    top_k = Keyword.get(opts, :top_k, 10)
+    feedback_docs = Keyword.get(opts, :feedback_docs, 3)
+    expansion_tokens = Keyword.get(opts, :expansion_tokens, 10)
+    expansion_weight = Keyword.get(opts, :expansion_weight, 0.5)
+
+    # Encode original query
+    query_embeddings = Encoder.encode_query(encoder, query)
+
+    # Initial search to get feedback documents
+    initial_results = search_with_embeddings(query_embeddings, index, top_k: feedback_docs)
+
+    # Extract expansion embeddings from feedback docs
+    expansion_embeddings =
+      extract_expansion_embeddings(index, initial_results, query_embeddings, expansion_tokens)
+
+    # Combine original query with expansion
+    expanded_query =
+      combine_query_with_expansion(query_embeddings, expansion_embeddings, expansion_weight)
+
+    # Final search with expanded query
+    search_with_embeddings(expanded_query, index, top_k: top_k)
+  end
+
+  @doc """
+  Extracts expansion embeddings from feedback documents.
+
+  Selects the most relevant token embeddings from feedback documents
+  that aren't already well-represented in the query.
+
+  ## Arguments
+    * `index` - Document index
+    * `feedback_results` - Search results to use for feedback
+    * `query_embeddings` - Original query embeddings
+    * `num_tokens` - Number of expansion tokens to extract
+
+  ## Returns
+    Tensor of expansion embeddings with shape {num_tokens, dim}, or nil if no
+    feedback documents are available.
+  """
+  @spec extract_expansion_embeddings(
+          Index.t() | Plaid.t() | CompressedIndex.t(),
+          [search_result()],
+          Nx.Tensor.t(),
+          pos_integer()
+        ) :: Nx.Tensor.t() | nil
+  def extract_expansion_embeddings(index, feedback_results, query_embeddings, num_tokens) do
+    # Collect all embeddings from feedback documents
+    feedback_embeddings =
+      feedback_results
+      |> Enum.flat_map(fn %{doc_id: doc_id} ->
+        case get_embeddings_from_index(index, doc_id) do
+          nil -> []
+          emb -> [emb]
+        end
+      end)
+
+    if Enum.empty?(feedback_embeddings) do
+      # No feedback docs found, return nil to signal no expansion
+      nil
+    else
+      # Stack all feedback embeddings
+      all_feedback = Nx.concatenate(feedback_embeddings, axis: 0)
+
+      # Score each feedback token by max similarity to query
+      # We want tokens that are relevant but add new information
+      select_expansion_tokens(all_feedback, query_embeddings, num_tokens)
+    end
+  end
+
+  defp select_expansion_tokens(feedback_embeddings, query_embeddings, num_tokens) do
+    {num_feedback, _dim} = Nx.shape(feedback_embeddings)
+
+    # Compute similarity of each feedback token to best matching query token
+    # similarity_matrix: {num_feedback, num_query}
+    similarity_matrix = Nx.dot(feedback_embeddings, Nx.transpose(query_embeddings))
+    max_sim_to_query = Nx.reduce_max(similarity_matrix, axes: [1])
+
+    # Select tokens with moderate similarity (relevant but not redundant)
+    # Ideal expansion tokens have ~0.3-0.7 similarity to query
+    # Score = relevance * novelty, where novelty = 1 - max_sim
+    novelty = Nx.subtract(1.0, max_sim_to_query)
+    expansion_score = Nx.multiply(max_sim_to_query, novelty)
+
+    # Get top-k expansion tokens
+    k = min(num_tokens, num_feedback)
+    {_values, indices} = Nx.top_k(expansion_score, k: k)
+
+    # Gather selected embeddings
+    indices_list = Nx.to_flat_list(indices)
+    selected = Enum.map(indices_list, fn i -> feedback_embeddings[i] end)
+
+    if Enum.empty?(selected) do
+      nil
+    else
+      Nx.stack(selected)
+    end
+  end
+
+  defp combine_query_with_expansion(query_embeddings, nil, _weight) do
+    query_embeddings
+  end
+
+  defp combine_query_with_expansion(query_embeddings, expansion_embeddings, weight) do
+    # Weight expansion embeddings
+    weighted_expansion = Nx.multiply(expansion_embeddings, weight)
+
+    # Concatenate original query with weighted expansion
+    Nx.concatenate([query_embeddings, weighted_expansion], axis: 0)
+  end
 end

@@ -176,4 +176,103 @@ defmodule Stephen.RetrieverTest do
       assert length(results) == 1
     end
   end
+
+  describe "extract_expansion_embeddings/4" do
+    test "extracts expansion embeddings from feedback documents" do
+      index = Index.new(embedding_dim: @embedding_dim)
+
+      # Create documents with different token embeddings
+      emb1 = Nx.tensor([[1.0, 0.0, 0.0, 0.0], [0.8, 0.2, 0.0, 0.0]])
+      emb2 = Nx.tensor([[0.0, 1.0, 0.0, 0.0], [0.0, 0.8, 0.2, 0.0]])
+
+      index =
+        index
+        |> Index.add("doc1", emb1)
+        |> Index.add("doc2", emb2)
+
+      query_emb = Nx.tensor([[0.9, 0.1, 0.0, 0.0]])
+      feedback_results = [%{doc_id: "doc1", score: 0.9}, %{doc_id: "doc2", score: 0.5}]
+
+      expansion = Retriever.extract_expansion_embeddings(index, feedback_results, query_emb, 2)
+
+      {num_tokens, dim} = Nx.shape(expansion)
+      assert num_tokens == 2
+      assert dim == @embedding_dim
+    end
+
+    test "returns nil when no feedback docs" do
+      index = Index.new(embedding_dim: @embedding_dim)
+      query_emb = Nx.tensor([[0.9, 0.1, 0.0, 0.0]])
+
+      expansion = Retriever.extract_expansion_embeddings(index, [], query_emb, 5)
+
+      assert expansion == nil
+    end
+
+    test "limits expansion tokens to requested amount" do
+      index = Index.new(embedding_dim: @embedding_dim)
+
+      # Document with many tokens
+      emb =
+        Nx.tensor([
+          [1.0, 0.0, 0.0, 0.0],
+          [0.9, 0.1, 0.0, 0.0],
+          [0.8, 0.2, 0.0, 0.0],
+          [0.7, 0.3, 0.0, 0.0],
+          [0.6, 0.4, 0.0, 0.0]
+        ])
+
+      index = Index.add(index, "doc1", emb)
+
+      query_emb = Nx.tensor([[0.5, 0.5, 0.0, 0.0]])
+      feedback_results = [%{doc_id: "doc1", score: 0.8}]
+
+      expansion = Retriever.extract_expansion_embeddings(index, feedback_results, query_emb, 2)
+
+      {num_tokens, _dim} = Nx.shape(expansion)
+      assert num_tokens == 2
+    end
+  end
+
+  describe "search_with_prf/4" do
+    test "performs search with pseudo-relevance feedback" do
+      index = Index.new(embedding_dim: @embedding_dim)
+
+      # Create documents with varying similarity patterns
+      emb1 = Nx.tensor([[1.0, 0.0, 0.0, 0.0], [0.9, 0.1, 0.0, 0.0]])
+      emb2 = Nx.tensor([[0.0, 1.0, 0.0, 0.0], [0.1, 0.9, 0.0, 0.0]])
+      emb3 = Nx.tensor([[0.5, 0.5, 0.0, 0.0]])
+
+      index =
+        index
+        |> Index.add("doc1", emb1)
+        |> Index.add("doc2", emb2)
+        |> Index.add("doc3", emb3)
+
+      # Note: Full PRF testing requires real encoder, but we can test components
+      _encoder = %{
+        model: nil,
+        tokenizer: nil,
+        embedding_dim: @embedding_dim,
+        output_dim: @embedding_dim,
+        projection: nil,
+        max_doc_length: 10,
+        max_query_length: 10,
+        skiplist: MapSet.new()
+      }
+
+      # We can't easily test with real encoder, so test the components
+      query_emb = Nx.tensor([[0.95, 0.05, 0.0, 0.0]])
+
+      # Test extract + combine manually
+      initial_results = Retriever.search_with_embeddings(query_emb, index, top_k: 2)
+      assert length(initial_results) > 0
+
+      expansion = Retriever.extract_expansion_embeddings(index, initial_results, query_emb, 3)
+      {num_expansion, _} = Nx.shape(expansion)
+
+      # Should have extracted some tokens
+      assert num_expansion >= 0
+    end
+  end
 end

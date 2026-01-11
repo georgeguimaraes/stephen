@@ -71,6 +71,23 @@ candidates = [
 results = Stephen.rerank_texts(encoder, "functional programming", candidates)
 ```
 
+## Query Expansion (PRF)
+
+Improve recall with pseudo-relevance feedback:
+
+```elixir
+results = Stephen.search_with_prf(encoder, index, "machine learning")
+
+# Tune expansion parameters
+results = Stephen.search_with_prf(encoder, index, query,
+  feedback_docs: 5,
+  expansion_tokens: 15,
+  expansion_weight: 0.3
+)
+```
+
+PRF uses top-ranked documents to expand the query with related terms, finding documents that may not match the exact query.
+
 ## Index Types
 
 | Index | Use Case |
