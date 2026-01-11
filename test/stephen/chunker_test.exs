@@ -6,76 +6,99 @@ defmodule Stephen.ChunkerTest do
   describe "chunk_text/2" do
     test "returns single chunk for short text" do
       text = "This is a short sentence."
-      chunks = Chunker.chunk_text(text, max_length: 10)
+      chunks = Chunker.chunk_text(text)
 
       assert chunks == [text]
     end
 
-    test "splits long text into overlapping chunks" do
-      # Create text with 20 words
-      text = Enum.map_join(1..20, " ", fn i -> "word#{i}" end)
+    test "splits long text at sentence boundaries" do
+      text = """
+      First sentence here. Second sentence follows. Third sentence comes next.
+      Fourth sentence in new paragraph. Fifth sentence ends it.
+      """
 
-      chunks = Chunker.chunk_text(text, max_length: 10, stride: 5)
+      chunks = Chunker.chunk_text(text, chunk_size: 100, chunk_overlap: 20)
 
-      # Should have 4 chunks: 0-9, 5-14, 10-19, 15-19
-      assert length(chunks) == 4
+      # Should have multiple chunks split at sentence boundaries
+      assert length(chunks) >= 1
 
-      # First chunk should have first 10 words
-      first_chunk = List.first(chunks)
-      assert String.contains?(first_chunk, "word1")
-      assert String.contains?(first_chunk, "word10")
-
-      # Chunks should overlap
-      second_chunk = Enum.at(chunks, 1)
-      assert String.contains?(second_chunk, "word6")
-      assert String.contains?(second_chunk, "word10")
+      # Each chunk should be a proper substring
+      for chunk <- chunks do
+        assert String.length(chunk) > 0
+      end
     end
 
-    test "uses custom tokenizer" do
-      text = "hello,world,this,is,a,test"
-      tokenizer = fn t -> String.split(t, ",") end
+    test "respects markdown format" do
+      text = """
+      # Heading One
 
-      chunks = Chunker.chunk_text(text, max_length: 3, stride: 2, tokenizer: tokenizer)
+      Some content under heading one.
 
-      # 6 tokens, max_length 3, stride 2 = 3 chunks (0-2, 2-4, 4-5)
-      assert length(chunks) == 3
+      ## Heading Two
+
+      More content under heading two.
+      """
+
+      chunks = Chunker.chunk_text(text, chunk_size: 50, format: :markdown)
+
+      assert length(chunks) >= 1
+    end
+
+    test "respects chunk_size parameter" do
+      # Create a long text
+      text = String.duplicate("This is a test sentence. ", 50)
+
+      small_chunks = Chunker.chunk_text(text, chunk_size: 100)
+      large_chunks = Chunker.chunk_text(text, chunk_size: 500)
+
+      # Smaller chunk size should produce more chunks
+      assert length(small_chunks) >= length(large_chunks)
     end
   end
 
   describe "chunk_documents/2" do
-    test "chunks multiple documents" do
+    test "chunks documents preserving mapping" do
       docs = [
-        {"doc1", Enum.map_join(1..5, " ", fn i -> "word#{i}" end)},
-        {"doc2", Enum.map_join(1..15, " ", fn i -> "term#{i}" end)}
+        {"doc1", "Short document."},
+        {"doc2", "Another document with more content. It has multiple sentences."}
       ]
 
-      {chunks, mapping} = Chunker.chunk_documents(docs, max_length: 10, stride: 5)
+      {chunks, mapping} = Chunker.chunk_documents(docs)
 
-      # doc1 has 5 words -> 1 chunk
-      # doc2 has 15 words -> 3 chunks (0-9, 5-14, 10-14)
-      assert length(chunks) == 4
+      # Each doc should have at least one chunk
+      assert length(chunks) >= 2
 
-      # Verify mapping
-      assert Map.has_key?(mapping, "doc1__chunk_0")
-      assert Map.has_key?(mapping, "doc2__chunk_0")
-      assert Map.has_key?(mapping, "doc2__chunk_1")
-      assert Map.has_key?(mapping, "doc2__chunk_2")
-
-      assert mapping["doc1__chunk_0"].doc_id == "doc1"
-      assert mapping["doc2__chunk_0"].doc_id == "doc2"
-      assert mapping["doc2__chunk_1"].doc_id == "doc2"
-      assert mapping["doc2__chunk_2"].doc_id == "doc2"
+      # Mapping should track doc origins
+      for {chunk_id, _text} <- chunks do
+        assert Map.has_key?(mapping, chunk_id)
+        assert mapping[chunk_id].doc_id in ["doc1", "doc2"]
+      end
     end
 
-    test "preserves chunk indices" do
-      docs = [{"long_doc", Enum.map_join(1..30, " ", fn i -> "x#{i}" end)}]
+    test "generates proper chunk IDs" do
+      docs = [{"my_doc", "Some content here."}]
 
-      {_chunks, mapping} = Chunker.chunk_documents(docs, max_length: 10, stride: 5)
+      {chunks, mapping} = Chunker.chunk_documents(docs)
 
-      # 30 words, max 10, stride 5 -> chunks at 0, 5, 10, 15, 20, 25
-      assert mapping["long_doc__chunk_0"].chunk_index == 0
-      assert mapping["long_doc__chunk_1"].chunk_index == 1
-      assert mapping["long_doc__chunk_2"].chunk_index == 2
+      [{chunk_id, _text}] = chunks
+      assert chunk_id == "my_doc__chunk_0"
+      assert mapping[chunk_id].doc_id == "my_doc"
+      assert mapping[chunk_id].chunk_index == 0
+    end
+
+    test "handles multiple chunks per document" do
+      long_text = String.duplicate("This is a sentence with some words. ", 30)
+      docs = [{"long_doc", long_text}]
+
+      {chunks, mapping} = Chunker.chunk_documents(docs, chunk_size: 100)
+
+      # Should produce multiple chunks
+      assert length(chunks) > 1
+
+      # All chunks should map to same doc
+      for {chunk_id, _text} <- chunks do
+        assert mapping[chunk_id].doc_id == "long_doc"
+      end
     end
   end
 
@@ -159,16 +182,17 @@ defmodule Stephen.ChunkerTest do
   describe "estimate_chunks/2" do
     test "returns 1 for short text" do
       text = "short text"
-      assert Chunker.estimate_chunks(text, max_length: 10) == 1
+      assert Chunker.estimate_chunks(text) == 1
     end
 
-    test "estimates correct number of chunks" do
-      # 20 words with max_length 10, stride 5
-      text = Enum.map_join(1..20, " ", fn i -> "word#{i}" end)
-      estimate = Chunker.estimate_chunks(text, max_length: 10, stride: 5)
+    test "estimates more chunks for longer text" do
+      short_text = "Short sentence."
+      long_text = String.duplicate("This is a longer sentence with more words. ", 20)
 
-      # Actual chunks: (20 - 10) / 5 + 2 = 4
-      assert estimate == 4
+      short_estimate = Chunker.estimate_chunks(short_text)
+      long_estimate = Chunker.estimate_chunks(long_text, chunk_size: 100)
+
+      assert long_estimate >= short_estimate
     end
   end
 

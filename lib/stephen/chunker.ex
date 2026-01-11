@@ -6,31 +6,37 @@ defmodule Stephen.Chunker do
   documents, we split them into overlapping chunks and track the mapping
   back to original documents.
 
+  Stephen uses sentence-aware recursive chunking via text_chunker, which
+  splits at semantic boundaries (sentences, paragraphs). Research shows
+  ColBERT performs best with sentence-aware splitting.
+
   ## Usage
 
       # Split documents into chunks
-      {chunks, mapping} = Stephen.Chunker.chunk_documents(documents, max_length: 180, stride: 90)
+      {chunks, mapping} = Stephen.Chunker.chunk_documents(documents)
+
+      # With custom size
+      {chunks, mapping} = Stephen.Chunker.chunk_documents(documents,
+        chunk_size: 500,
+        chunk_overlap: 100
+      )
+
+      # For markdown documents
+      {chunks, mapping} = Stephen.Chunker.chunk_documents(documents,
+        format: :markdown
+      )
 
       # After retrieval, merge results back to document level
       merged_results = Stephen.Chunker.merge_results(chunk_results, mapping)
-
-  ## How it works
-
-  Given a document with 400 tokens and max_length=180, stride=90:
-  - Chunk 0: tokens 0-179
-  - Chunk 1: tokens 90-269
-  - Chunk 2: tokens 180-359
-  - Chunk 3: tokens 270-399 (padded or truncated)
-
-  The overlap (stride < max_length) ensures context isn't lost at boundaries.
   """
 
   @type doc_id :: term()
   @type chunk_id :: String.t()
   @type chunk_mapping :: %{chunk_id() => %{doc_id: doc_id(), chunk_index: non_neg_integer()}}
 
-  @default_max_length 180
-  @default_stride 90
+  # ~500 chars ≈ 100-125 tokens, good for ColBERT's sweet spot
+  @default_chunk_size 500
+  @default_chunk_overlap 100
 
   @doc """
   Splits documents into overlapping chunks.
@@ -40,9 +46,9 @@ defmodule Stephen.Chunker do
     * `opts` - Chunking options
 
   ## Options
-    * `:max_length` - Maximum tokens per chunk (default: #{@default_max_length})
-    * `:stride` - Stride between chunks in tokens (default: #{@default_stride})
-    * `:tokenizer` - Optional tokenizer function (default: simple word split)
+    * `:chunk_size` - Target chunk size in characters (default: #{@default_chunk_size})
+    * `:chunk_overlap` - Overlap between chunks in characters (default: #{@default_chunk_overlap})
+    * `:format` - Text format for separator selection (`:plaintext` or `:markdown`, default: `:plaintext`)
 
   ## Returns
     Tuple of `{chunks, mapping}` where:
@@ -52,14 +58,10 @@ defmodule Stephen.Chunker do
   @spec chunk_documents([{doc_id(), String.t()}], keyword()) ::
           {[{chunk_id(), String.t()}], chunk_mapping()}
   def chunk_documents(documents, opts \\ []) do
-    max_length = Keyword.get(opts, :max_length, @default_max_length)
-    stride = Keyword.get(opts, :stride, @default_stride)
-    tokenizer = Keyword.get(opts, :tokenizer, &default_tokenize/1)
-
     {chunks, mapping} =
       documents
       |> Enum.flat_map_reduce(%{}, fn {doc_id, text}, mapping ->
-        doc_chunks = chunk_text(text, doc_id, max_length, stride, tokenizer)
+        doc_chunks = chunk_document(text, doc_id, opts)
 
         new_mapping =
           doc_chunks
@@ -86,19 +88,17 @@ defmodule Stephen.Chunker do
   """
   @spec chunk_text(String.t(), keyword()) :: [String.t()]
   def chunk_text(text, opts \\ []) do
-    max_length = Keyword.get(opts, :max_length, @default_max_length)
-    stride = Keyword.get(opts, :stride, @default_stride)
-    tokenizer = Keyword.get(opts, :tokenizer, &default_tokenize/1)
+    chunk_size = Keyword.get(opts, :chunk_size, @default_chunk_size)
+    chunk_overlap = Keyword.get(opts, :chunk_overlap, @default_chunk_overlap)
+    format = Keyword.get(opts, :format, :plaintext)
 
-    tokens = tokenizer.(text)
-    num_tokens = length(tokens)
-
-    if num_tokens <= max_length do
-      [text]
-    else
-      chunk_tokens(tokens, max_length, stride)
-      |> Enum.map(&Enum.join(&1, " "))
-    end
+    text
+    |> TextChunker.split(
+      chunk_size: chunk_size,
+      chunk_overlap: chunk_overlap,
+      format: format
+    )
+    |> Enum.map(& &1.text)
   end
 
   @doc """
@@ -157,18 +157,9 @@ defmodule Stephen.Chunker do
   """
   @spec estimate_chunks(String.t(), keyword()) :: non_neg_integer()
   def estimate_chunks(text, opts \\ []) do
-    max_length = Keyword.get(opts, :max_length, @default_max_length)
-    stride = Keyword.get(opts, :stride, @default_stride)
-    tokenizer = Keyword.get(opts, :tokenizer, &default_tokenize/1)
-
-    num_tokens = text |> tokenizer.() |> length()
-
-    if num_tokens <= max_length do
-      1
-    else
-      # Calculate number of chunks with overlap
-      div(num_tokens - max_length, stride) + 2
-    end
+    text
+    |> chunk_text(opts)
+    |> length()
   end
 
   @doc """
@@ -206,52 +197,20 @@ defmodule Stephen.Chunker do
     |> Enum.map(fn {chunk_id, _info} -> chunk_id end)
   end
 
-  # Internal implementation
+  # Private
 
-  defp chunk_text(text, doc_id, max_length, stride, tokenizer) do
-    tokens = tokenizer.(text)
-    num_tokens = length(tokens)
+  defp chunk_document(text, doc_id, opts) do
+    chunks = chunk_text(text, opts)
 
-    if num_tokens <= max_length do
-      chunk_id = generate_chunk_id(doc_id, 0)
-      [{chunk_id, text}]
-    else
-      chunk_tokens(tokens, max_length, stride)
-      |> Enum.with_index()
-      |> Enum.map(fn {chunk_tokens, idx} ->
-        chunk_id = generate_chunk_id(doc_id, idx)
-        chunk_text = Enum.join(chunk_tokens, " ")
-        {chunk_id, chunk_text}
-      end)
-    end
-  end
-
-  defp chunk_tokens(tokens, max_length, stride) do
-    num_tokens = length(tokens)
-
-    Stream.unfold(0, fn start ->
-      if start >= num_tokens do
-        nil
-      else
-        chunk = Enum.slice(tokens, start, max_length)
-        next_start = start + stride
-
-        if length(chunk) > 0 do
-          {chunk, next_start}
-        else
-          nil
-        end
-      end
+    chunks
+    |> Enum.with_index()
+    |> Enum.map(fn {chunk_text, idx} ->
+      chunk_id = generate_chunk_id(doc_id, idx)
+      {chunk_id, chunk_text}
     end)
-    |> Enum.to_list()
   end
 
   defp generate_chunk_id(doc_id, chunk_index) do
     "#{doc_id}__chunk_#{chunk_index}"
-  end
-
-  defp default_tokenize(text) do
-    text
-    |> String.split(~r/\s+/, trim: true)
   end
 end

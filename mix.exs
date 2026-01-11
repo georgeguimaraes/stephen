@@ -33,6 +33,7 @@ defmodule Stephen.MixProject do
       {:scholar, "~> 0.4"},
       {:exla, "~> 0.9", optional: true},
       {:hnswlib, "~> 0.1"},
+      {:text_chunker, "~> 0.3"},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:benchee, "~> 1.3", only: :dev},
