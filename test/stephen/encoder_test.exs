@@ -162,5 +162,23 @@ defmodule Stephen.EncoderTest do
       norms = Nx.LinAlg.norm(embeddings, axes: [-1])
       assert Nx.all(Nx.less(Nx.abs(Nx.subtract(norms, 1.0)), 0.01)) |> Nx.to_number() == 1
     end
+
+    @tag :slow
+    test "auto-detects model_type from config.json" do
+      # colbert-ir/colbertv2.0 has model_type: "bert" in config.json
+      # This test verifies auto-detection works (same result as hardcoded)
+      {:ok, encoder} = Encoder.load(model: "colbert-ir/colbertv2.0")
+      assert encoder.embedding_dim == 768
+    end
+
+    @tag :slow
+    test "accepts base_module override" do
+      # Even though colbertv2.0 is BERT-based, we can force a different module
+      # This will fail to load params but proves the override works
+      result = Encoder.load(model: "colbert-ir/colbertv2.0", base_module: Bumblebee.Text.Roberta)
+
+      # Should fail because RoBERTa architecture doesn't match BERT weights
+      assert {:error, _} = result
+    end
   end
 end

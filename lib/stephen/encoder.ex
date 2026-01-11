@@ -43,6 +43,16 @@ defmodule Stephen.Encoder do
     "colbert-ir/colbertv1.0"
   ]
 
+  # Mapping from HuggingFace model_type to Bumblebee module
+  @model_type_to_module %{
+    "bert" => Bumblebee.Text.Bert,
+    "roberta" => Bumblebee.Text.Roberta,
+    "distilbert" => Bumblebee.Text.Distilbert,
+    "albert" => Bumblebee.Text.Albert,
+    "electra" => Bumblebee.Text.Electra,
+    "xlm-roberta" => Bumblebee.Text.Xlm
+  }
+
   # Punctuation tokens to skip (matching Python ColBERT's skiplist)
   @punctuation_tokens [
     ".",
@@ -87,11 +97,15 @@ defmodule Stephen.Encoder do
     * `:max_query_length` - Maximum query length in tokens (default: #{@default_max_query_length})
     * `:max_doc_length` - Maximum document length in tokens (default: #{@default_max_doc_length})
     * `:projection_dim` - Output dimension after projection (default: #{@default_projection_dim}, nil to disable)
+    * `:base_module` - Override the Bumblebee module for ColBERT models (auto-detected from config.json)
 
   ## ColBERT Models
 
   When loading a ColBERT model (e.g., `colbert-ir/colbertv2.0`), the trained projection
-  weights are automatically loaded from the model's SafeTensors file.
+  weights are automatically loaded from the model's SafeTensors file. The base model
+  type is auto-detected from config.json, but can be overridden with `:base_module`.
+
+  Supported base models: BERT, RoBERTa, DistilBERT, ALBERT, ELECTRA, XLM-RoBERTa.
 
   ## Examples
 
@@ -100,6 +114,12 @@ defmodule Stephen.Encoder do
 
       # Load official ColBERT model with trained weights
       {:ok, encoder} = Stephen.Encoder.load(model: "colbert-ir/colbertv2.0")
+
+      # Override base model type for custom ColBERT models
+      {:ok, encoder} = Stephen.Encoder.load(
+        model: "custom/roberta-colbert",
+        base_module: Bumblebee.Text.Roberta
+      )
   """
   @spec load(keyword()) :: {:ok, encoder()} | {:error, term()}
   def load(opts \\ []) do
@@ -107,9 +127,10 @@ defmodule Stephen.Encoder do
     max_query_length = Keyword.get(opts, :max_query_length, @default_max_query_length)
     max_doc_length = Keyword.get(opts, :max_doc_length, @default_max_doc_length)
     projection_dim = Keyword.get(opts, :projection_dim, @default_projection_dim)
+    base_module = Keyword.get(opts, :base_module)
 
     if colbert_model?(model_name) do
-      load_colbert(model_name, max_query_length, max_doc_length)
+      load_colbert(model_name, max_query_length, max_doc_length, base_module)
     else
       load_standard(model_name, max_query_length, max_doc_length, projection_dim)
     end
@@ -169,13 +190,14 @@ defmodule Stephen.Encoder do
   end
 
   # Load a ColBERT model with trained projection weights
-  defp load_colbert(model_name, max_query_length, max_doc_length) do
+  defp load_colbert(model_name, max_query_length, max_doc_length, base_module_override) do
     # ColBERT models use HF_ColBERT architecture which Bumblebee doesn't support.
-    # We load the BERT backbone directly and extract projection weights from SafeTensors.
+    # We detect the base model type from config.json and load it directly.
 
-    with {:ok, %{model: model, params: params, spec: spec}} <-
+    with {:ok, base_module} <- resolve_base_module(model_name, base_module_override),
+         {:ok, %{model: model, params: params, spec: spec}} <-
            Bumblebee.load_model({:hf, model_name},
-             module: Bumblebee.Text.Bert,
+             module: base_module,
              architecture: :base
            ),
          {:ok, tokenizer} <- Bumblebee.load_tokenizer({:hf, model_name}),
@@ -226,6 +248,29 @@ defmodule Stephen.Encoder do
     end
   rescue
     e -> {:error, "Failed to read SafeTensors: #{Exception.message(e)}"}
+  end
+
+  # Resolve the Bumblebee module for a ColBERT model
+  # Uses override if provided, otherwise auto-detects from config.json
+  defp resolve_base_module(_model_name, module) when not is_nil(module), do: {:ok, module}
+
+  defp resolve_base_module(model_name, nil) do
+    url = Bumblebee.HuggingFace.Hub.file_url(model_name, "config.json", nil)
+
+    with {:ok, path} <- Bumblebee.HuggingFace.Hub.cached_download(url, cache_scope: model_name),
+         {:ok, content} <- File.read(path),
+         {:ok, config} <- Jason.decode(content) do
+      model_type = Map.get(config, "model_type", "bert")
+
+      case Map.get(@model_type_to_module, model_type) do
+        nil ->
+          {:error,
+           "Unsupported model_type '#{model_type}'. Use :base_module option to specify manually."}
+
+        module ->
+          {:ok, module}
+      end
+    end
   end
 
   @doc """
