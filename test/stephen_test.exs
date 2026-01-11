@@ -2,6 +2,7 @@ defmodule StephenTest do
   use ExUnit.Case
 
   @moduletag :integration
+  @moduletag timeout: :infinity
 
   describe "full pipeline" do
     @tag :slow

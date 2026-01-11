@@ -19,8 +19,8 @@ defmodule Stephen.Index do
   ]
 
   @type t :: %__MODULE__{
-          hnsw_index: reference() | nil,
-          embedding_dim: pos_integer(),
+          hnsw_index: HNSWLib.Index.t(),
+          embedding_dim: non_neg_integer(),
           doc_embeddings: %{term() => Nx.Tensor.t()},
           token_to_doc: %{non_neg_integer() => term()},
           doc_count: non_neg_integer(),
