@@ -30,7 +30,7 @@ defmodule Stephen.Encoder do
 
   @type embeddings :: Nx.Tensor.t()
 
-  @default_model "sentence-transformers/all-MiniLM-L6-v2"
+  @default_model "colbert-ir/colbertv2.0"
   @default_max_query_length 32
   @default_max_doc_length 180
   @default_projection_dim 128
