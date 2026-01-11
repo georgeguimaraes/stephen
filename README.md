@@ -218,6 +218,28 @@ scores = Stephen.Scorer.multi_max_sim(query_embeddings, doc_embeddings)
 )
 ```
 
+### Using Official ColBERT Models
+
+Stephen can load official ColBERT model weights directly, including the trained projection layer:
+
+```elixir
+# Load the official ColBERTv2 model with trained weights
+{:ok, encoder} = Stephen.Encoder.load(model: "colbert-ir/colbertv2.0")
+
+# Uses BERT-base (768 dims) with trained 768->128 projection
+encoder.embedding_dim  # => 768
+encoder.output_dim     # => 128
+```
+
+When you specify a ColBERT model, Stephen automatically:
+1. Downloads the model weights from HuggingFace
+2. Loads the BERT backbone via Bumblebee
+3. Extracts the trained projection weights from the SafeTensors file
+
+Supported ColBERT models:
+- `colbert-ir/colbertv2.0` (recommended)
+- `colbert-ir/colbertv1.0`
+
 ### Index Options
 
 ```elixir
@@ -257,6 +279,7 @@ Stephen aims for feature parity with the Python ColBERT implementation:
 - [x] PLAID indexing
 - [x] Dynamic index updates
 - [x] Multi-vector batch queries
+- [x] Official ColBERT model loading
 - [ ] Distillation training
 
 ## Dependencies

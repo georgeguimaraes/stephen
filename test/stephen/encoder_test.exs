@@ -124,4 +124,43 @@ defmodule Stephen.EncoderTest do
       assert Encoder.hidden_dim(encoder) == 384
     end
   end
+
+  describe "ColBERT model loading" do
+    @tag :slow
+    test "loads colbert-ir/colbertv2.0 with trained projection weights" do
+      {:ok, encoder} = Encoder.load(model: "colbert-ir/colbertv2.0")
+
+      # ColBERTv2 uses BERT-base (768 hidden) with 128-dim projection
+      assert encoder.embedding_dim == 768
+      assert encoder.output_dim == 128
+      assert encoder.projection != nil
+      assert Nx.shape(encoder.projection) == {768, 128}
+    end
+
+    @tag :slow
+    test "colbert encoder produces embeddings" do
+      {:ok, encoder} = Encoder.load(model: "colbert-ir/colbertv2.0")
+
+      embeddings = Encoder.encode_query(encoder, "what is elixir?")
+      {seq_len, dim} = Nx.shape(embeddings)
+
+      assert seq_len == 32
+      assert dim == 128
+    end
+
+    @tag :slow
+    test "colbert embeddings match reference values" do
+      {:ok, encoder} = Encoder.load(model: "colbert-ir/colbertv2.0")
+
+      # Encode "hello world" and check output shape and some values
+      embeddings = Encoder.encode_query(encoder, "hello world", pad: false)
+      {_seq_len, dim} = Nx.shape(embeddings)
+
+      assert dim == 128
+
+      # Values should be L2-normalized (unit length per token)
+      norms = Nx.LinAlg.norm(embeddings, axes: [-1])
+      assert Nx.all(Nx.less(Nx.abs(Nx.subtract(norms, 1.0)), 0.01)) |> Nx.to_number() == 1
+    end
+  end
 end

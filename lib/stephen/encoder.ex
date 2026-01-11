@@ -37,6 +37,12 @@ defmodule Stephen.Encoder do
   @query_marker "[Q]"
   @doc_marker "[D]"
 
+  # Known ColBERT models with trained projection weights
+  @colbert_models [
+    "colbert-ir/colbertv2.0",
+    "colbert-ir/colbertv1.0"
+  ]
+
   # Punctuation tokens to skip (matching Python ColBERT's skiplist)
   @punctuation_tokens [
     ".",
@@ -82,10 +88,18 @@ defmodule Stephen.Encoder do
     * `:max_doc_length` - Maximum document length in tokens (default: #{@default_max_doc_length})
     * `:projection_dim` - Output dimension after projection (default: #{@default_projection_dim}, nil to disable)
 
+  ## ColBERT Models
+
+  When loading a ColBERT model (e.g., `colbert-ir/colbertv2.0`), the trained projection
+  weights are automatically loaded from the model's SafeTensors file.
+
   ## Examples
 
       {:ok, encoder} = Stephen.Encoder.load()
       {:ok, encoder} = Stephen.Encoder.load(model: "bert-base-uncased", projection_dim: 128)
+
+      # Load official ColBERT model with trained weights
+      {:ok, encoder} = Stephen.Encoder.load(model: "colbert-ir/colbertv2.0")
   """
   @spec load(keyword()) :: {:ok, encoder()} | {:error, term()}
   def load(opts \\ []) do
@@ -94,6 +108,20 @@ defmodule Stephen.Encoder do
     max_doc_length = Keyword.get(opts, :max_doc_length, @default_max_doc_length)
     projection_dim = Keyword.get(opts, :projection_dim, @default_projection_dim)
 
+    if colbert_model?(model_name) do
+      load_colbert(model_name, max_query_length, max_doc_length)
+    else
+      load_standard(model_name, max_query_length, max_doc_length, projection_dim)
+    end
+  end
+
+  # Check if model is a known ColBERT model
+  defp colbert_model?(model_name) do
+    model_name in @colbert_models
+  end
+
+  # Load a standard BERT model with random projection
+  defp load_standard(model_name, max_query_length, max_doc_length, projection_dim) do
     with {:ok, %{model: model, params: params, spec: spec}} <-
            Bumblebee.load_model({:hf, model_name}),
          {:ok, tokenizer} <- Bumblebee.load_tokenizer({:hf, model_name}) do
@@ -137,6 +165,91 @@ defmodule Stephen.Encoder do
          mask_token_id: mask_token_id,
          skiplist: skiplist
        }}
+    end
+  end
+
+  # Load a ColBERT model with trained projection weights
+  defp load_colbert(model_name, max_query_length, max_doc_length) do
+    # ColBERT models use HF_ColBERT architecture which Bumblebee doesn't support.
+    # We load the BERT backbone directly and extract projection weights from SafeTensors.
+
+    with {:ok, %{model: model, params: params, spec: spec}} <-
+           Bumblebee.load_model({:hf, model_name},
+             module: Bumblebee.Text.Bert,
+             architecture: :base
+           ),
+         {:ok, tokenizer} <- Bumblebee.load_tokenizer({:hf, model_name}),
+         {:ok, projection} <- load_colbert_projection(model_name) do
+      embedding_dim = spec.hidden_size
+      output_dim = Nx.axis_size(projection, 1)
+
+      # Get the mask token ID from tokenizer
+      mask_token_id = get_mask_token_id(tokenizer)
+
+      # Build skiplist of punctuation token IDs
+      skiplist = build_skiplist(tokenizer)
+
+      {:ok,
+       %{
+         model: model,
+         params: params,
+         tokenizer: tokenizer,
+         embedding_dim: embedding_dim,
+         output_dim: output_dim,
+         max_query_length: max_query_length,
+         max_doc_length: max_doc_length,
+         projection: projection,
+         mask_token_id: mask_token_id,
+         skiplist: skiplist
+       }}
+    end
+  end
+
+  # Load ColBERT projection weights from SafeTensors file
+  defp load_colbert_projection(model_name) do
+    hub_url = "https://huggingface.co/#{model_name}/resolve/main/model.safetensors"
+
+    with {:ok, path} <- download_file(hub_url) do
+      tensors = Safetensors.read!(path)
+
+      # ColBERT stores projection as "linear.weight" with shape {output_dim, input_dim}
+      # We need to transpose it to {input_dim, output_dim} for our dot product
+      case Map.get(tensors, "linear.weight") do
+        nil ->
+          {:error, "No linear.weight found in ColBERT model"}
+
+        weight ->
+          # Transpose from {128, 768} to {768, 128}
+          {:ok, Nx.transpose(weight)}
+      end
+    end
+  rescue
+    e -> {:error, "Failed to read SafeTensors: #{Exception.message(e)}"}
+  end
+
+  # Download file from URL to cache directory
+  defp download_file(url) do
+    cache_dir = Path.join(System.tmp_dir!(), "stephen_cache")
+    File.mkdir_p!(cache_dir)
+
+    # Create a filename from the URL hash
+    filename = :crypto.hash(:sha256, url) |> Base.encode16(case: :lower) |> String.slice(0..15)
+    cache_path = Path.join(cache_dir, filename <> ".safetensors")
+
+    if File.exists?(cache_path) do
+      {:ok, cache_path}
+    else
+      case :httpc.request(:get, {String.to_charlist(url), []}, [], body_format: :binary) do
+        {:ok, {{_, 200, _}, _headers, body}} ->
+          File.write!(cache_path, body)
+          {:ok, cache_path}
+
+        {:ok, {{_, status, _}, _headers, _body}} ->
+          {:error, "HTTP #{status} downloading #{url}"}
+
+        {:error, reason} ->
+          {:error, "Failed to download: #{inspect(reason)}"}
+      end
     end
   end
 
