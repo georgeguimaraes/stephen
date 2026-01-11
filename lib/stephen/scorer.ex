@@ -118,4 +118,91 @@ defmodule Stephen.Scorer do
   def similarity_matrix(query_embeddings, doc_embeddings) do
     Nx.dot(query_embeddings, Nx.transpose(doc_embeddings))
   end
+
+  @doc """
+  Normalizes a MaxSim score to [0, 1] range.
+
+  Since embeddings are L2-normalized, the maximum per-token similarity is 1.0.
+  The theoretical maximum score is therefore `query_length`.
+
+  ## Arguments
+    * `score` - Raw MaxSim score
+    * `query_length` - Number of query tokens used in scoring
+
+  ## Returns
+    Normalized score in [0, 1] range.
+
+  ## Examples
+
+      raw_score = Stephen.Scorer.max_sim(query_emb, doc_emb)
+      normalized = Stephen.Scorer.normalize(raw_score, 32)
+      # => 0.73
+  """
+  @spec normalize(score(), pos_integer()) :: float()
+  def normalize(score, query_length) when query_length > 0 do
+    score / query_length
+  end
+
+  @doc """
+  Normalizes search results to [0, 1] range.
+
+  Takes a list of search results and normalizes their scores based on
+  the query length. Useful for setting thresholds or comparing results
+  across different queries.
+
+  ## Arguments
+    * `results` - List of `%{doc_id: term(), score: float()}` maps
+    * `query_length` - Number of query tokens used in scoring
+
+  ## Returns
+    Results with normalized scores.
+
+  ## Examples
+
+      results = Stephen.search(encoder, index, "hello world")
+      normalized = Stephen.Scorer.normalize_results(results, 32)
+      high_quality = Enum.filter(normalized, & &1.score > 0.7)
+  """
+  @spec normalize_results([map()], pos_integer()) :: [map()]
+  def normalize_results(results, query_length) when query_length > 0 do
+    Enum.map(results, fn result ->
+      %{result | score: result.score / query_length}
+    end)
+  end
+
+  @doc """
+  Normalizes results using min-max scaling within the result set.
+
+  Scales scores so the highest is 1.0 and lowest is 0.0. Useful when
+  you want relative ranking within results rather than absolute scores.
+
+  ## Arguments
+    * `results` - List of `%{doc_id: term(), score: float()}` maps
+
+  ## Returns
+    Results with scores scaled to [0, 1] range.
+
+  ## Examples
+
+      results = Stephen.search(encoder, index, query)
+      normalized = Stephen.Scorer.normalize_minmax(results)
+  """
+  @spec normalize_minmax([map()]) :: [map()]
+  def normalize_minmax([]), do: []
+  def normalize_minmax([single]), do: [%{single | score: 1.0}]
+
+  def normalize_minmax(results) do
+    scores = Enum.map(results, & &1.score)
+    min_score = Enum.min(scores)
+    max_score = Enum.max(scores)
+    range = max_score - min_score
+
+    if range == 0 do
+      Enum.map(results, fn result -> %{result | score: 1.0} end)
+    else
+      Enum.map(results, fn result ->
+        %{result | score: (result.score - min_score) / range}
+      end)
+    end
+  end
 end

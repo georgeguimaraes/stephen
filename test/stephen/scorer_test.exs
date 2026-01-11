@@ -137,4 +137,82 @@ defmodule Stephen.ScorerTest do
       assert scores == [[]]
     end
   end
+
+  describe "normalize/2" do
+    test "normalizes score by query length" do
+      # Score of 16 with 32 tokens = 0.5
+      assert Scorer.normalize(16.0, 32) == 0.5
+    end
+
+    test "perfect match gives 1.0" do
+      # If all tokens match perfectly, score = query_length
+      assert Scorer.normalize(32.0, 32) == 1.0
+    end
+
+    test "zero score gives 0.0" do
+      assert Scorer.normalize(0.0, 32) == 0.0
+    end
+  end
+
+  describe "normalize_results/2" do
+    test "normalizes all result scores" do
+      results = [
+        %{doc_id: "a", score: 24.0},
+        %{doc_id: "b", score: 16.0},
+        %{doc_id: "c", score: 8.0}
+      ]
+
+      normalized = Scorer.normalize_results(results, 32)
+
+      assert Enum.at(normalized, 0).score == 0.75
+      assert Enum.at(normalized, 1).score == 0.5
+      assert Enum.at(normalized, 2).score == 0.25
+    end
+
+    test "preserves doc_ids" do
+      results = [%{doc_id: "test", score: 16.0}]
+      normalized = Scorer.normalize_results(results, 32)
+
+      assert Enum.at(normalized, 0).doc_id == "test"
+    end
+  end
+
+  describe "normalize_minmax/1" do
+    test "scales scores to [0, 1] range" do
+      results = [
+        %{doc_id: "a", score: 30.0},
+        %{doc_id: "b", score: 20.0},
+        %{doc_id: "c", score: 10.0}
+      ]
+
+      normalized = Scorer.normalize_minmax(results)
+
+      assert Enum.at(normalized, 0).score == 1.0
+      assert Enum.at(normalized, 1).score == 0.5
+      assert Enum.at(normalized, 2).score == 0.0
+    end
+
+    test "handles empty list" do
+      assert Scorer.normalize_minmax([]) == []
+    end
+
+    test "handles single result" do
+      results = [%{doc_id: "a", score: 15.0}]
+      normalized = Scorer.normalize_minmax(results)
+
+      assert Enum.at(normalized, 0).score == 1.0
+    end
+
+    test "handles all equal scores" do
+      results = [
+        %{doc_id: "a", score: 10.0},
+        %{doc_id: "b", score: 10.0}
+      ]
+
+      normalized = Scorer.normalize_minmax(results)
+
+      assert Enum.at(normalized, 0).score == 1.0
+      assert Enum.at(normalized, 1).score == 1.0
+    end
+  end
 end
