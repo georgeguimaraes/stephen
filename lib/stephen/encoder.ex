@@ -49,8 +49,7 @@ defmodule Stephen.Encoder do
     "roberta" => Bumblebee.Text.Roberta,
     "distilbert" => Bumblebee.Text.Distilbert,
     "albert" => Bumblebee.Text.Albert,
-    "electra" => Bumblebee.Text.Electra,
-    "xlm-roberta" => Bumblebee.Text.Xlm
+    "xlm-roberta" => Bumblebee.Text.Roberta
   }
 
   # Punctuation tokens to skip (matching Python ColBERT's skiplist)
@@ -105,7 +104,7 @@ defmodule Stephen.Encoder do
   weights are automatically loaded from the model's SafeTensors file. The base model
   type is auto-detected from config.json, but can be overridden with `:base_module`.
 
-  Supported base models: BERT, RoBERTa, DistilBERT, ALBERT, ELECTRA, XLM-RoBERTa.
+  Supported base models: BERT, RoBERTa, DistilBERT, ALBERT, XLM-RoBERTa.
 
   ## Examples
 
