@@ -96,4 +96,45 @@ defmodule Stephen.ScorerTest do
       assert Nx.shape(matrix) == {3, 2}
     end
   end
+
+  describe "multi_max_sim/2" do
+    test "scores multiple queries against multiple documents" do
+      queries = [
+        Nx.tensor([[1.0, 0.0, 0.0]]),
+        Nx.tensor([[0.0, 1.0, 0.0]])
+      ]
+
+      docs = [
+        Nx.tensor([[1.0, 0.0, 0.0]]),
+        Nx.tensor([[0.0, 1.0, 0.0]]),
+        Nx.tensor([[0.5, 0.5, 0.0]])
+      ]
+
+      scores = Scorer.multi_max_sim(queries, docs)
+
+      # Returns list of lists: scores[query_idx][doc_idx]
+      assert length(scores) == 2
+      assert length(Enum.at(scores, 0)) == 3
+
+      # Query 0 matches doc 0 best
+      assert_in_delta Enum.at(Enum.at(scores, 0), 0), 1.0, 0.01
+      assert_in_delta Enum.at(Enum.at(scores, 0), 1), 0.0, 0.01
+
+      # Query 1 matches doc 1 best
+      assert_in_delta Enum.at(Enum.at(scores, 1), 0), 0.0, 0.01
+      assert_in_delta Enum.at(Enum.at(scores, 1), 1), 1.0, 0.01
+    end
+
+    test "handles empty query list" do
+      docs = [Nx.tensor([[1.0, 0.0, 0.0]])]
+      scores = Scorer.multi_max_sim([], docs)
+      assert scores == []
+    end
+
+    test "handles empty doc list" do
+      queries = [Nx.tensor([[1.0, 0.0, 0.0]])]
+      scores = Scorer.multi_max_sim(queries, [])
+      assert scores == [[]]
+    end
+  end
 end

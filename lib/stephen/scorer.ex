@@ -51,6 +51,30 @@ defmodule Stephen.Scorer do
   end
 
   @doc """
+  Computes MaxSim scores for multiple queries against multiple documents.
+
+  Each query is scored against each document, returning a matrix of scores.
+
+  ## Arguments
+    * `query_embeddings_list` - List of query tensors, each of shape {query_len, dim}
+    * `doc_embeddings_list` - List of document tensors, each of shape {doc_len, dim}
+
+  ## Returns
+    List of lists where result[i][j] is the score of query i against doc j.
+
+  ## Examples
+
+      scores = Stephen.Scorer.multi_max_sim(queries, docs)
+      # scores[0][1] is score of first query against second doc
+  """
+  @spec multi_max_sim([Nx.Tensor.t()], [Nx.Tensor.t()]) :: [[score()]]
+  def multi_max_sim(query_embeddings_list, doc_embeddings_list) do
+    Enum.map(query_embeddings_list, fn query_emb ->
+      max_sim_batch(query_emb, doc_embeddings_list)
+    end)
+  end
+
+  @doc """
   Ranks documents by their MaxSim scores against a query.
 
   ## Arguments
