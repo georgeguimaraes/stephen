@@ -207,9 +207,10 @@ defmodule Stephen.Encoder do
 
   # Load ColBERT projection weights from SafeTensors file
   defp load_colbert_projection(model_name) do
-    hub_url = "https://huggingface.co/#{model_name}/resolve/main/model.safetensors"
+    # Use Bumblebee's HuggingFace Hub module for proper caching
+    url = Bumblebee.HuggingFace.Hub.file_url(model_name, "model.safetensors", nil)
 
-    with {:ok, path} <- download_file(hub_url) do
+    with {:ok, path} <- Bumblebee.HuggingFace.Hub.cached_download(url, cache_scope: model_name) do
       tensors = Safetensors.read!(path)
 
       # ColBERT stores projection as "linear.weight" with shape {output_dim, input_dim}
@@ -225,32 +226,6 @@ defmodule Stephen.Encoder do
     end
   rescue
     e -> {:error, "Failed to read SafeTensors: #{Exception.message(e)}"}
-  end
-
-  # Download file from URL to cache directory
-  defp download_file(url) do
-    cache_dir = Path.join(System.tmp_dir!(), "stephen_cache")
-    File.mkdir_p!(cache_dir)
-
-    # Create a filename from the URL hash
-    filename = :crypto.hash(:sha256, url) |> Base.encode16(case: :lower) |> String.slice(0..15)
-    cache_path = Path.join(cache_dir, filename <> ".safetensors")
-
-    if File.exists?(cache_path) do
-      {:ok, cache_path}
-    else
-      case :httpc.request(:get, {String.to_charlist(url), []}, [], body_format: :binary) do
-        {:ok, {{_, 200, _}, _headers, body}} ->
-          File.write!(cache_path, body)
-          {:ok, cache_path}
-
-        {:ok, {{_, status, _}, _headers, _body}} ->
-          {:error, "HTTP #{status} downloading #{url}"}
-
-        {:error, reason} ->
-          {:error, "Failed to download: #{inspect(reason)}"}
-      end
-    end
   end
 
   @doc """
