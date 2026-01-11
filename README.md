@@ -31,14 +31,14 @@ config :nx, default_backend: EXLA.Backend
 # Create index and add documents
 index = Stephen.new_index(encoder)
 index = Stephen.index(encoder, index, [
-  {"doc1", "Elixir is a functional programming language"},
-  {"doc2", "Python is popular for machine learning"},
-  {"doc3", "Rust provides memory safety"}
+  {"colbert", "Stephen Colbert hosted The Colbert Report before The Late Show"},
+  {"conan", "Conan O'Brien is known for his self-deprecating humor and tall hair"},
+  {"seth", "Seth Meyers was head writer at SNL before hosting Late Night"}
 ])
 
 # Search
-results = Stephen.search(encoder, index, "functional programming")
-# => [%{doc_id: "doc1", score: 15.2}, ...]
+results = Stephen.search(encoder, index, "late night comedy")
+# => [%{doc_id: "colbert", score: 15.2}, ...]
 
 # Save/load
 :ok = Stephen.save_index(index, "my_index")
@@ -65,10 +65,10 @@ results = Stephen.rerank(encoder, index, "query", ["doc1", "doc5", "doc12"])
 
 # From raw text (no index needed)
 candidates = [
-  {"doc1", "Elixir is functional"},
-  {"doc2", "Python is dynamic"}
+  {"colbert", "Stephen Colbert interviews politicians with satirical wit"},
+  {"conan", "Conan O'Brien traveled the world for his travel show"}
 ]
-results = Stephen.rerank_texts(encoder, "functional programming", candidates)
+results = Stephen.rerank_texts(encoder, "political satire comedy", candidates)
 ```
 
 ## Query Expansion (PRF)
@@ -76,7 +76,7 @@ results = Stephen.rerank_texts(encoder, "functional programming", candidates)
 Improve recall with pseudo-relevance feedback:
 
 ```elixir
-results = Stephen.search_with_prf(encoder, index, "machine learning")
+results = Stephen.search_with_prf(encoder, index, "late night hosts")
 
 # Tune expansion parameters
 results = Stephen.search_with_prf(encoder, index, query,
@@ -87,6 +87,26 @@ results = Stephen.search_with_prf(encoder, index, query,
 ```
 
 PRF uses top-ranked documents to expand the query with related terms, finding documents that may not match the exact query.
+
+## Debugging Scores
+
+Understand why a document scored the way it did:
+
+```elixir
+explanation = Stephen.explain(encoder, "satirical comedy", "Colbert is a satirical host")
+
+# Print formatted explanation
+explanation |> Stephen.Scorer.format_explanation() |> IO.puts()
+# Score: 15.20
+#
+# Query Token          -> Doc Token            Similarity
+# --------------------------------------------------------
+# satirical            -> satirical            0.95
+# comedy               -> host                 0.72
+# ...
+```
+
+This shows which query tokens matched which document tokens and their similarity scores.
 
 ## Index Types
 

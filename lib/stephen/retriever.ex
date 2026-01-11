@@ -198,10 +198,10 @@ defmodule Stephen.Retriever do
   ## Examples
 
       candidates = [
-        {"doc1", "Elixir is a dynamic, functional language"},
-        {"doc2", "Python is a popular programming language"}
+        {"colbert", "Stephen Colbert hosts The Late Show with satirical comedy"},
+        {"conan", "Conan O'Brien is known for absurdist humor and remotes"}
       ]
-      results = rerank_texts(encoder, "functional programming", candidates)
+      results = rerank_texts(encoder, "political satire", candidates)
   """
   @spec rerank_texts(Encoder.encoder(), String.t(), [{term(), String.t()}], keyword()) ::
           [search_result()]
@@ -423,7 +423,7 @@ defmodule Stephen.Retriever do
   ## Examples
 
       # Basic PRF search
-      results = Retriever.search_with_prf(encoder, index, "machine learning")
+      results = Retriever.search_with_prf(encoder, index, "late night comedy")
 
       # Tune PRF parameters
       results = Retriever.search_with_prf(encoder, index, query,

@@ -143,17 +143,17 @@ defmodule Stephen.Scorer do
 
   ## Examples
 
-      query_emb = Encoder.encode_query(encoder, "functional programming")
-      doc_emb = Encoder.encode_document(encoder, "Elixir is functional")
-      query_tokens = Encoder.tokenize(encoder, "functional programming", type: :query)
-      doc_tokens = Encoder.tokenize(encoder, "Elixir is functional")
+      query_emb = Encoder.encode_query(encoder, "satirical comedy")
+      doc_emb = Encoder.encode_document(encoder, "Colbert is satirical")
+      query_tokens = Encoder.tokenize(encoder, "satirical comedy", type: :query)
+      doc_tokens = Encoder.tokenize(encoder, "Colbert is satirical")
 
       explanation = Scorer.explain(query_emb, doc_emb, query_tokens, doc_tokens)
       # => %{
       #   score: 15.2,
       #   matches: [
-      #     %{query_token: "functional", doc_token: "functional", similarity: 0.95, ...},
-      #     %{query_token: "programming", doc_token: "Elixir", similarity: 0.42, ...},
+      #     %{query_token: "satirical", doc_token: "satirical", similarity: 0.95, ...},
+      #     %{query_token: "comedy", doc_token: "Colbert", similarity: 0.42, ...},
       #     ...
       #   ]
       # }
@@ -216,8 +216,8 @@ defmodule Stephen.Scorer do
       #
       # Query Token          -> Doc Token            Similarity
       # --------------------------------------------------------
-      # functional           -> functional           0.95
-      # programming          -> language             0.72
+      # satirical           -> satirical           0.95
+      # comedy               -> host                0.72
       # ...
   """
   @spec format_explanation(map(), keyword()) :: String.t()
@@ -300,7 +300,7 @@ defmodule Stephen.Scorer do
 
   ## Examples
 
-      results = Stephen.search(encoder, index, "hello world")
+      results = Stephen.search(encoder, index, "late night comedy")
       normalized = Stephen.Scorer.normalize_results(results, 32)
       high_quality = Enum.filter(normalized, & &1.score > 0.7)
   """
@@ -369,9 +369,9 @@ defmodule Stephen.Scorer do
 
       # Query expansion: original + synonyms
       queries = [
-        Encoder.encode_query(encoder, "machine learning"),
-        Encoder.encode_query(encoder, "ML algorithms"),
-        Encoder.encode_query(encoder, "artificial intelligence")
+        Encoder.encode_query(encoder, "late night host"),
+        Encoder.encode_query(encoder, "talk show comedian"),
+        Encoder.encode_query(encoder, "comedy television")
       ]
       score = Scorer.fuse_queries(queries, doc_emb, :max)
 

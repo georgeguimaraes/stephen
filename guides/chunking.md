@@ -87,7 +87,7 @@ index = Stephen.new_index(encoder)
 index = Stephen.index(encoder, index, chunks)
 
 # 5. Search
-chunk_results = Stephen.search(encoder, index, "machine learning")
+chunk_results = Stephen.search(encoder, index, "comedy monologue")
 
 # 6. Merge to document-level
 doc_results = Stephen.Chunker.merge_results(chunk_results, mapping)

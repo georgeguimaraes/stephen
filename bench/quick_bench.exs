@@ -8,16 +8,16 @@ load_time_s = Float.round(load_time_us / 1_000_000, 2)
 IO.puts("Encoder loaded in #{load_time_s}s")
 
 queries = [
-  "what is machine learning?",
-  "how does ColBERT work?",
-  "neural information retrieval"
+  "who is Stephen Colbert?",
+  "best late night comedy hosts",
+  "political satire on television"
 ]
 
 docs = [
-  "Machine learning is a subset of artificial intelligence that enables systems to learn from data.",
-  "ColBERT uses late interaction with per-token embeddings for efficient neural retrieval.",
-  "Information retrieval systems help users find relevant documents in large collections.",
-  "Deep learning models have revolutionized natural language processing tasks."
+  "Stephen Colbert hosted The Colbert Report before taking over The Late Show from David Letterman.",
+  "Conan O'Brien is known for his self-deprecating humor, red hair, and Conan Without Borders specials.",
+  "Seth Meyers was head writer at SNL and now hosts Late Night with his A Closer Look segments.",
+  "John Oliver hosts Last Week Tonight on HBO with in-depth investigative comedy journalism."
 ]
 
 # Warm up

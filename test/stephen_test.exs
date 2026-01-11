@@ -14,22 +14,22 @@ defmodule StephenTest do
       index = Stephen.new_index(encoder)
 
       documents = [
-        {"doc1", "The quick brown fox jumps over the lazy dog"},
-        {"doc2", "Machine learning is a subset of artificial intelligence"},
-        {"doc3", "Elixir is a functional programming language built on Erlang"}
+        {"colbert", "Stephen Colbert hosted The Colbert Report before The Late Show"},
+        {"conan", "Conan O'Brien is known for his self-deprecating humor and remotes"},
+        {"seth", "Seth Meyers was head writer at SNL before hosting Late Night"}
       ]
 
       index = Stephen.index(encoder, index, documents)
 
-      # Search for programming-related content
-      results = Stephen.search(encoder, index, "programming languages", top_k: 3)
+      # Search for late night related content
+      results = Stephen.search(encoder, index, "late night comedy", top_k: 3)
 
       assert length(results) == 3
       assert is_float(hd(results).score)
 
-      # The programming document should rank high
+      # The late night documents should be found
       doc_ids = Enum.map(results, & &1.doc_id)
-      assert "doc3" in doc_ids
+      assert "colbert" in doc_ids
     end
 
     @tag :slow
@@ -38,20 +38,20 @@ defmodule StephenTest do
       index = Stephen.new_index(encoder)
 
       documents = [
-        {"doc1", "Python is popular for data science"},
-        {"doc2", "Elixir excels at concurrent programming"},
-        {"doc3", "JavaScript runs in web browsers"}
+        {"colbert", "Stephen Colbert does satirical political comedy"},
+        {"conan", "Conan O'Brien is known for absurdist comedy sketches"},
+        {"letterman", "David Letterman pioneered the modern late night format"}
       ]
 
       index = Stephen.index(encoder, index, documents)
 
       # Rerank specific documents
       results =
-        Stephen.rerank(encoder, index, "concurrent systems", ["doc1", "doc2", "doc3"])
+        Stephen.rerank(encoder, index, "political satire", ["colbert", "conan", "letterman"])
 
       assert length(results) == 3
-      # Elixir doc should rank highest for "concurrent systems"
-      assert hd(results).doc_id == "doc2"
+      # Colbert should rank highest for "political satire"
+      assert hd(results).doc_id == "colbert"
     end
 
     @tag :slow
@@ -60,16 +60,16 @@ defmodule StephenTest do
       index = Stephen.new_index(encoder)
 
       documents = [
-        {"doc1", "Python is popular for data science and machine learning"},
-        {"doc2", "Elixir excels at concurrent programming and fault tolerance"},
-        {"doc3", "JavaScript runs in web browsers and Node.js servers"},
-        {"doc4", "Rust provides memory safety without garbage collection"}
+        {"colbert", "Stephen Colbert does satirical political commentary on The Late Show"},
+        {"conan", "Conan O'Brien traveled the world for Conan Without Borders specials"},
+        {"seth", "Seth Meyers hosts Late Night and does A Closer Look segments"},
+        {"oliver", "John Oliver hosts Last Week Tonight with in-depth investigative comedy"}
       ]
 
       index = Stephen.index(encoder, index, documents)
 
       # Batch search multiple queries
-      queries = ["machine learning", "concurrent systems", "memory management"]
+      queries = ["political satire", "travel comedy", "investigative journalism"]
       results = Stephen.Retriever.batch_search(encoder, index, queries, top_k: 2)
 
       assert length(results) == 3
@@ -77,20 +77,20 @@ defmodule StephenTest do
       assert length(Enum.at(results, 1)) == 2
       assert length(Enum.at(results, 2)) == 2
 
-      # First query about ML should rank doc1 high
-      ml_results = Enum.at(results, 0)
-      ml_doc_ids = Enum.map(ml_results, & &1.doc_id)
-      assert "doc1" in ml_doc_ids
+      # First query about political satire should rank colbert high
+      satire_results = Enum.at(results, 0)
+      satire_doc_ids = Enum.map(satire_results, & &1.doc_id)
+      assert "colbert" in satire_doc_ids
 
-      # Second query about concurrency should rank doc2 high
-      concurrent_results = Enum.at(results, 1)
-      concurrent_doc_ids = Enum.map(concurrent_results, & &1.doc_id)
-      assert "doc2" in concurrent_doc_ids
+      # Second query about travel should rank conan high
+      travel_results = Enum.at(results, 1)
+      travel_doc_ids = Enum.map(travel_results, & &1.doc_id)
+      assert "conan" in travel_doc_ids
 
-      # Third query about memory should rank doc4 high
-      memory_results = Enum.at(results, 2)
-      memory_doc_ids = Enum.map(memory_results, & &1.doc_id)
-      assert "doc4" in memory_doc_ids
+      # Third query about investigative should rank oliver high
+      investigative_results = Enum.at(results, 2)
+      investigative_doc_ids = Enum.map(investigative_results, & &1.doc_id)
+      assert "oliver" in investigative_doc_ids
     end
 
     @tag :slow
@@ -99,18 +99,18 @@ defmodule StephenTest do
       index = Stephen.new_index(encoder)
 
       documents = [
-        {"doc1", "Python is the best language for data science and analytics"},
-        {"doc2", "Elixir excels at concurrent programming and fault tolerance"},
-        {"doc3", "JavaScript runs in web browsers"},
-        {"doc4", "Rust provides memory safety"}
+        {"colbert", "Stephen Colbert does satirical political commentary nightly"},
+        {"conan", "Conan O'Brien is known for absurdist comedy and travel shows"},
+        {"seth", "Seth Meyers does political analysis on Late Night"},
+        {"oliver", "John Oliver does investigative comedy journalism"}
       ]
 
       index = Stephen.index(encoder, index, documents)
 
       # Batch rerank with different candidates for each query
       queries_and_candidates = [
-        {"python data science analytics", ["doc1", "doc2", "doc3"]},
-        {"concurrent fault tolerant distributed systems", ["doc2", "doc3", "doc4"]}
+        {"satirical political commentary", ["colbert", "conan", "seth"]},
+        {"absurdist comedy travel shows", ["conan", "seth", "oliver"]}
       ]
 
       results = Stephen.Retriever.batch_rerank(encoder, index, queries_and_candidates)
@@ -140,20 +140,20 @@ defmodule StephenTest do
       index = Stephen.new_index(encoder)
 
       documents = [
-        {"doc1", "Elixir is a functional programming language"},
-        {"doc2", "Python is used for machine learning"}
+        {"colbert", "Stephen Colbert is known for satirical political comedy"},
+        {"conan", "Conan O'Brien does absurdist comedy sketches and remotes"}
       ]
 
       index = Stephen.index(encoder, index, documents)
 
       # Pre-compute query embeddings
-      query_embeddings = Stephen.Encoder.encode_query(encoder, "functional programming")
+      query_embeddings = Stephen.Encoder.encode_query(encoder, "political satire")
 
       # Search with pre-computed embeddings
       results = Stephen.Retriever.search_with_embeddings(query_embeddings, index, top_k: 2)
 
       assert length(results) == 2
-      assert hd(results).doc_id == "doc1"
+      assert hd(results).doc_id == "colbert"
     end
   end
 end

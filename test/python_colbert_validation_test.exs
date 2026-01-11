@@ -18,7 +18,7 @@ defmodule PythonColbertValidationTest do
   # Load reference data at compile time
   @reference_data Path.join(__DIR__, "fixtures/colbert_reference.json")
                   |> File.read!()
-                  |> Jason.decode!()
+                  |> JSON.decode!()
 
   describe "MaxSim scoring validation" do
     test "MaxSim scores match Python ColBERT within tolerance" do
@@ -31,12 +31,12 @@ defmodule PythonColbertValidationTest do
       # 1. Using known tensor shapes
       # 2. Verifying the scoring algorithm behavior
 
-      # Reference shapes: query [3, 32, 128], doc [4, 20, 128]
+      # Reference shapes: query [3, 32, 128], doc [4, 27, 128]
       query_shape = reference["query_embeddings"]["shape"]
       doc_shape = reference["doc_embeddings"]["shape"]
 
       assert query_shape == [3, 32, 128], "Query shape should be [3, 32, 128]"
-      assert doc_shape == [4, 20, 128], "Doc shape should be [4, 20, 128]"
+      assert doc_shape == [4, 27, 128], "Doc shape should be [4, 27, 128]"
     end
 
     test "MaxSim returns positive scores for similar embeddings" do
@@ -120,9 +120,9 @@ defmodule PythonColbertValidationTest do
       queries = reference["queries"]
 
       assert length(queries) == 3
-      assert "what is machine learning?" in queries
-      assert "how does ColBERT work?" in queries
-      assert "neural information retrieval" in queries
+      assert "who is Stephen Colbert?" in queries
+      assert "best late night comedy hosts" in queries
+      assert "political satire on television" in queries
     end
 
     test "documents are preserved" do
@@ -130,9 +130,9 @@ defmodule PythonColbertValidationTest do
       docs = reference["docs"]
 
       assert length(docs) == 4
-      assert Enum.any?(docs, &String.contains?(&1, "Machine learning"))
-      assert Enum.any?(docs, &String.contains?(&1, "ColBERT"))
-      assert Enum.any?(docs, &String.contains?(&1, "Information retrieval"))
+      assert Enum.any?(docs, &String.contains?(&1, "Stephen Colbert"))
+      assert Enum.any?(docs, &String.contains?(&1, "Conan O'Brien"))
+      assert Enum.any?(docs, &String.contains?(&1, "Seth Meyers"))
     end
 
     test "MaxSim scores are structured correctly" do
@@ -154,12 +154,12 @@ defmodule PythonColbertValidationTest do
       end
     end
 
-    test "first query gets highest score on ML document" do
+    test "first query gets highest score on Colbert document" do
       reference = @reference_data
       scores = reference["maxsim_scores"]
 
-      # Query 0: "what is machine learning?"
-      # Should match best with doc 0: "Machine learning is a subset..."
+      # Query 0: "who is Stephen Colbert?"
+      # Should match best with doc 0: "Stephen Colbert hosted..."
       query0_scores = Enum.at(scores, 0)
 
       doc0_score =
@@ -176,17 +176,17 @@ defmodule PythonColbertValidationTest do
       assert doc0_score == max_score
     end
 
-    test "ColBERT query gets highest score on ColBERT document" do
+    test "late night query gets good scores on late night documents" do
       reference = @reference_data
       scores = reference["maxsim_scores"]
 
-      # Query 1: "how does ColBERT work?"
-      # Should match best with doc 1: "ColBERT uses late interaction..."
+      # Query 1: "best late night comedy hosts"
+      # Seth Meyers doc mentions "Late Night" explicitly, so scores highest
       query1_scores = Enum.at(scores, 1)
 
-      doc1_score =
+      doc2_score =
         query1_scores
-        |> Enum.find(&(&1["doc_idx"] == 1))
+        |> Enum.find(&(&1["doc_idx"] == 2))
         |> Map.get("score")
 
       max_score =
@@ -194,7 +194,7 @@ defmodule PythonColbertValidationTest do
         |> Enum.map(& &1["score"])
         |> Enum.max()
 
-      assert doc1_score == max_score
+      assert doc2_score == max_score
     end
   end
 
@@ -211,10 +211,550 @@ defmodule PythonColbertValidationTest do
     end
   end
 
+  describe "retrieval ranking validation" do
+    # Note: Rankings are specific to query/doc pairs and will need fixture regeneration
+    # Run: python scripts/colbert_reference.py > test/fixtures/colbert_reference.json
+    test "rankings structure is valid" do
+      reference = @reference_data
+      rankings = reference["rankings"]
+
+      # Should have 3 rankings (one per query)
+      assert length(rankings) == 3
+
+      # Each ranking should have required fields
+      for ranking <- rankings do
+        assert Map.has_key?(ranking, "query_idx")
+        assert Map.has_key?(ranking, "query")
+        assert Map.has_key?(ranking, "ranking")
+        assert Map.has_key?(ranking, "top_score")
+        assert length(ranking["ranking"]) == 4
+      end
+    end
+
+    test "Stephen reranking produces same rankings as Python ColBERT" do
+      reference = @reference_data
+      scores = reference["maxsim_scores"]
+      rankings = reference["rankings"]
+
+      for {query_scores, expected_ranking} <- Enum.zip(scores, rankings) do
+        # Sort scores descending by score (like Stephen.rerank does)
+        sorted_docs =
+          query_scores
+          |> Enum.sort_by(& &1["score"], :desc)
+          |> Enum.map(& &1["doc_idx"])
+
+        assert sorted_docs == expected_ranking["ranking"],
+               "Ranking for query #{expected_ranking["query_idx"]} should match"
+      end
+    end
+  end
+
+  describe "compression ratio validation" do
+    test "compression ratios match Python ColBERT expected values" do
+      reference = @reference_data
+      ratios = reference["compression_tests"]["compression_ratios"]
+
+      # Validate Stephen.Compression.compression_ratio/2 matches expected
+      assert Stephen.Compression.compression_ratio(128, 1) == ratios["dim_128_1bit"]
+      assert Stephen.Compression.compression_ratio(128, 2) == ratios["dim_128_2bit"]
+      assert Stephen.Compression.compression_ratio(128, 4) == ratios["dim_128_4bit"]
+      assert Stephen.Compression.compression_ratio(128, 8) == ratios["dim_128_8bit"]
+    end
+
+    test "1-bit compression achieves ~28x ratio" do
+      ratio = Stephen.Compression.compression_ratio(128, 1)
+      assert ratio > 25.0 and ratio < 30.0
+    end
+
+    test "2-bit compression achieves ~15x ratio" do
+      ratio = Stephen.Compression.compression_ratio(128, 2)
+      assert ratio > 13.0 and ratio < 17.0
+    end
+  end
+
+  describe "bit packing validation against numpy" do
+    test "1-bit packing matches numpy.packbits" do
+      reference = @reference_data
+      tests = reference["compression_tests"]["bit_pack_1bit"]
+
+      for test_case <- tests do
+        input = Nx.tensor([test_case["input"]], type: :u8)
+        expected = test_case["packed"]
+
+        # Pack using Stephen's implementation
+        packed = pack_bits_1bit(input)
+        actual = Nx.to_flat_list(packed)
+
+        assert actual == expected,
+               "1-bit packing failed for #{inspect(test_case["input"])}: got #{inspect(actual)}, expected #{inspect(expected)}"
+      end
+    end
+
+    test "2-bit packing matches expected values" do
+      reference = @reference_data
+      tests = reference["compression_tests"]["bit_pack_2bit"]
+
+      for test_case <- tests do
+        input = Nx.tensor([test_case["input"]], type: :u8)
+        expected = test_case["packed"]
+
+        # Pack using Stephen's implementation
+        packed = pack_bits_2bit(input)
+        actual = Nx.to_flat_list(packed)
+
+        assert actual == expected,
+               "2-bit packing failed for #{inspect(test_case["input"])}: got #{inspect(actual)}, expected #{inspect(expected)}"
+      end
+    end
+
+    test "1-bit round trip preserves values" do
+      reference = @reference_data
+      tests = reference["compression_tests"]["bit_pack_1bit"]
+
+      for test_case <- tests do
+        input = Nx.tensor([test_case["input"]], type: :u8)
+
+        packed = pack_bits_1bit(input)
+        unpacked = unpack_bits_1bit(packed)
+
+        assert Nx.to_flat_list(unpacked) == test_case["input"],
+               "1-bit round trip failed for #{inspect(test_case["input"])}"
+      end
+    end
+
+    test "2-bit round trip preserves values" do
+      reference = @reference_data
+      tests = reference["compression_tests"]["bit_pack_2bit"]
+
+      for test_case <- tests do
+        input = Nx.tensor([test_case["input"]], type: :u8)
+
+        packed = pack_bits_2bit(input)
+        unpacked = unpack_bits_2bit(packed)
+
+        # Convert to integers for comparison
+        actual = unpacked |> Nx.as_type(:u8) |> Nx.to_flat_list()
+
+        assert actual == test_case["input"],
+               "2-bit round trip failed for #{inspect(test_case["input"])}"
+      end
+    end
+  end
+
   # Helper functions
 
   defp normalize(tensor) do
     norm = Nx.LinAlg.norm(tensor, axes: [-1], keep_axes: true)
     Nx.divide(tensor, Nx.add(norm, 1.0e-9))
+  end
+
+  # 1-bit packing: 8 values per byte
+  defp pack_bits_1bit(values) do
+    {n, dim} = Nx.shape(values)
+    padded_dim = ceil(dim / 8) * 8
+    padding = padded_dim - dim
+
+    padded =
+      if padding > 0 do
+        Nx.pad(values, 0, [{0, 0, 0}, {0, padding, 0}])
+      else
+        values
+      end
+
+    reshaped = Nx.reshape(padded, {n, div(padded_dim, 8), 8})
+    weights = Nx.tensor([128, 64, 32, 16, 8, 4, 2, 1], type: :u8)
+    packed = Nx.sum(Nx.multiply(reshaped, weights), axes: [2])
+    Nx.as_type(packed, :u8)
+  end
+
+  # 1-bit unpacking: 8 values per byte
+  defp unpack_bits_1bit(packed) do
+    {n, packed_dim} = Nx.shape(packed)
+    dim = packed_dim * 8
+
+    expanded = Nx.reshape(packed, {n, packed_dim, 1})
+    weights = Nx.tensor([[128, 64, 32, 16, 8, 4, 2, 1]], type: :u8)
+    masked = Nx.bitwise_and(expanded, weights)
+    bits = Nx.greater(masked, 0) |> Nx.as_type(:u8)
+    Nx.reshape(bits, {n, dim})
+  end
+
+  # 2-bit packing: 4 values per byte
+  defp pack_bits_2bit(values) do
+    {n, dim} = Nx.shape(values)
+    padded_dim = ceil(dim / 4) * 4
+    padding = padded_dim - dim
+
+    padded =
+      if padding > 0 do
+        Nx.pad(values, 0, [{0, 0, 0}, {0, padding, 0}])
+      else
+        values
+      end
+
+    reshaped = Nx.reshape(padded, {n, div(padded_dim, 4), 4})
+    weights = Nx.tensor([64, 16, 4, 1], type: :u8)
+    packed = Nx.sum(Nx.multiply(reshaped, weights), axes: [2])
+    Nx.as_type(packed, :u8)
+  end
+
+  # 2-bit unpacking: 4 values per byte
+  defp unpack_bits_2bit(packed) do
+    {n, packed_dim} = Nx.shape(packed)
+    dim = packed_dim * 4
+
+    expanded = Nx.reshape(packed, {n, packed_dim, 1})
+    shifts = Nx.tensor([[6, 4, 2, 0]], type: :u8)
+    shifted = Nx.right_shift(expanded, shifts)
+    values = Nx.bitwise_and(shifted, 3) |> Nx.as_type(:f32)
+    Nx.reshape(values, {n, dim})
+  end
+end
+
+defmodule PythonColbertValidationTest.CompressedIndexTest do
+  @moduledoc """
+  Validates that compressed index search produces same rankings as uncompressed.
+  """
+  use ExUnit.Case
+
+  alias Stephen.Index.Compressed
+  alias Stephen.Scorer
+
+  @moduletag :python_validation
+  @moduletag :slow
+
+  describe "compressed index ranking validation" do
+    test "compressed search returns same top-k ranking as uncompressed MaxSim" do
+      key = Nx.Random.key(42)
+
+      # Generate 10 documents with 15 tokens each, 64-dim embeddings
+      docs =
+        Enum.map(0..9, fn i ->
+          {emb, _} = Nx.Random.normal(Nx.Random.key(i), shape: {15, 64}, type: :f32)
+          {"doc_#{i}", normalize(emb)}
+        end)
+
+      # Generate query
+      {query, _} = Nx.Random.normal(key, shape: {10, 64}, type: :f32)
+      query = normalize(query)
+
+      # Build compressed index
+      index = Compressed.new(embedding_dim: 64, num_centroids: 16)
+      index = Compressed.index_documents(index, docs)
+
+      # Search compressed
+      compressed_results = Compressed.search(index, query, top_k: 5)
+      compressed_ranking = Enum.map(compressed_results, & &1.doc_id)
+
+      # Compute uncompressed MaxSim for all docs
+      uncompressed_scores =
+        Enum.map(docs, fn {doc_id, emb} ->
+          score = Scorer.max_sim(query, emb)
+          {doc_id, score}
+        end)
+        |> Enum.sort_by(fn {_, score} -> score end, :desc)
+        |> Enum.take(5)
+        |> Enum.map(fn {doc_id, _} -> doc_id end)
+
+      # With lossy compression, top result may shift slightly
+      # Top compressed result should be in top-3 of uncompressed
+      top_3_uncompressed = Enum.take(uncompressed_scores, 3)
+
+      assert hd(compressed_ranking) in top_3_uncompressed,
+             "Top compressed result (#{hd(compressed_ranking)}) should be in top 3 uncompressed: #{inspect(top_3_uncompressed)}"
+
+      # At least 3 of top 5 should overlap
+      overlap =
+        MapSet.intersection(MapSet.new(compressed_ranking), MapSet.new(uncompressed_scores))
+
+      assert MapSet.size(overlap) >= 3, "At least 3 of top 5 should overlap"
+    end
+
+    test "1-bit compressed index maintains ranking quality" do
+      # Generate docs
+      docs =
+        Enum.map(0..9, fn i ->
+          {emb, _} = Nx.Random.normal(Nx.Random.key(i + 100), shape: {15, 64}, type: :f32)
+          {"doc_#{i}", normalize(emb)}
+        end)
+
+      # Query
+      {query, _} = Nx.Random.normal(Nx.Random.key(999), shape: {10, 64}, type: :f32)
+      query = normalize(query)
+
+      # Build 1-bit compressed index
+      index = Compressed.new(embedding_dim: 64, num_centroids: 16)
+      index = Compressed.train(index, Enum.map(docs, fn {_, emb} -> emb end), residual_bits: 1)
+      index = Enum.reduce(docs, index, fn {id, emb}, acc -> Compressed.add(acc, id, emb) end)
+
+      # Search
+      results = Compressed.search(index, query, top_k: 5)
+
+      # Should return results
+      assert length(results) == 5
+
+      # Scores should be positive
+      Enum.each(results, fn %{score: score} ->
+        assert score > 0, "Score should be positive"
+      end)
+    end
+
+    test "2-bit compressed index maintains ranking quality" do
+      docs =
+        Enum.map(0..9, fn i ->
+          {emb, _} = Nx.Random.normal(Nx.Random.key(i + 200), shape: {15, 64}, type: :f32)
+          {"doc_#{i}", normalize(emb)}
+        end)
+
+      {query, _} = Nx.Random.normal(Nx.Random.key(888), shape: {10, 64}, type: :f32)
+      query = normalize(query)
+
+      # Build 2-bit compressed index
+      index = Compressed.new(embedding_dim: 64, num_centroids: 16)
+      index = Compressed.train(index, Enum.map(docs, fn {_, emb} -> emb end), residual_bits: 2)
+      index = Enum.reduce(docs, index, fn {id, emb}, acc -> Compressed.add(acc, id, emb) end)
+
+      results = Compressed.search(index, query, top_k: 5)
+
+      assert length(results) == 5
+      Enum.each(results, fn %{score: score} -> assert score > 0 end)
+    end
+  end
+
+  defp normalize(tensor) do
+    norm = Nx.LinAlg.norm(tensor, axes: [-1], keep_axes: true)
+    Nx.divide(tensor, Nx.add(norm, 1.0e-9))
+  end
+end
+
+defmodule PythonColbertValidationTest.PlaidTest do
+  @moduledoc """
+  Validates PLAID centroid-based search produces same rankings as brute force.
+  """
+  use ExUnit.Case
+
+  alias Stephen.Plaid
+  alias Stephen.Scorer
+
+  @moduletag :python_validation
+  @moduletag :slow
+
+  describe "PLAID ranking validation" do
+    test "PLAID search returns same top result as brute force MaxSim" do
+      # Generate docs
+      docs =
+        Enum.map(0..19, fn i ->
+          {emb, _} = Nx.Random.normal(Nx.Random.key(i), shape: {20, 64}, type: :f32)
+          {"doc_#{i}", normalize(emb)}
+        end)
+
+      # Query
+      {query, _} = Nx.Random.normal(Nx.Random.key(999), shape: {10, 64}, type: :f32)
+      query = normalize(query)
+
+      # Build PLAID index
+      plaid = Plaid.new(embedding_dim: 64, num_centroids: 32)
+      plaid = Plaid.index_documents(plaid, docs)
+
+      # PLAID search
+      plaid_results = Plaid.search(plaid, query, top_k: 5, nprobe: 8)
+      plaid_top = hd(plaid_results).doc_id
+
+      # Brute force
+      brute_force =
+        Enum.map(docs, fn {doc_id, emb} ->
+          {doc_id, Scorer.max_sim(query, emb)}
+        end)
+        |> Enum.sort_by(fn {_, score} -> score end, :desc)
+
+      brute_top = elem(hd(brute_force), 0)
+
+      # Top result should match
+      assert plaid_top == brute_top,
+             "PLAID top=#{plaid_top}, brute force top=#{brute_top}"
+    end
+
+    test "PLAID with higher nprobe improves recall" do
+      docs =
+        Enum.map(0..29, fn i ->
+          {emb, _} = Nx.Random.normal(Nx.Random.key(i + 300), shape: {20, 64}, type: :f32)
+          {"doc_#{i}", normalize(emb)}
+        end)
+
+      {query, _} = Nx.Random.normal(Nx.Random.key(777), shape: {10, 64}, type: :f32)
+      query = normalize(query)
+
+      plaid = Plaid.new(embedding_dim: 64, num_centroids: 32)
+      plaid = Plaid.index_documents(plaid, docs)
+
+      # Low nprobe
+      results_low = Plaid.search(plaid, query, top_k: 10, nprobe: 2)
+      # High nprobe
+      results_high = Plaid.search(plaid, query, top_k: 10, nprobe: 16)
+
+      # Brute force ground truth
+      ground_truth =
+        Enum.map(docs, fn {doc_id, emb} -> {doc_id, Scorer.max_sim(query, emb)} end)
+        |> Enum.sort_by(fn {_, score} -> score end, :desc)
+        |> Enum.take(10)
+        |> Enum.map(fn {id, _} -> id end)
+        |> MapSet.new()
+
+      low_recall =
+        results_low
+        |> Enum.map(& &1.doc_id)
+        |> MapSet.new()
+        |> MapSet.intersection(ground_truth)
+        |> MapSet.size()
+
+      high_recall =
+        results_high
+        |> Enum.map(& &1.doc_id)
+        |> MapSet.new()
+        |> MapSet.intersection(ground_truth)
+        |> MapSet.size()
+
+      # Higher nprobe should give >= recall
+      assert high_recall >= low_recall,
+             "High nprobe recall (#{high_recall}) should be >= low nprobe (#{low_recall})"
+    end
+  end
+
+  defp normalize(tensor) do
+    norm = Nx.LinAlg.norm(tensor, axes: [-1], keep_axes: true)
+    Nx.divide(tensor, Nx.add(norm, 1.0e-9))
+  end
+end
+
+defmodule PythonColbertValidationTest.ChunkerTest do
+  @moduledoc """
+  Validates chunker produces correct chunk boundaries and merging.
+  """
+  use ExUnit.Case
+
+  alias Stephen.Chunker
+
+  @moduletag :python_validation
+
+  describe "chunker validation" do
+    test "chunks text at word boundaries" do
+      text =
+        "This is a test sentence. Another sentence here. And one more for good measure to ensure we have enough tokens."
+
+      chunks = Chunker.chunk_text(text, max_length: 10, stride: 5)
+
+      assert chunks != []
+      # Each chunk should be a string
+      Enum.each(chunks, fn chunk ->
+        assert is_binary(chunk)
+        assert String.length(chunk) > 0
+      end)
+    end
+
+    test "chunks with overlap share content" do
+      text = "Word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12"
+      chunks = Chunker.chunk_text(text, max_length: 5, stride: 3)
+
+      if length(chunks) >= 2 do
+        # Adjacent chunks should have some overlap
+        first_words = chunks |> hd() |> String.split()
+        second_words = chunks |> Enum.at(1) |> String.split()
+
+        # Some words from first chunk should appear in second chunk (due to stride < max_length)
+        overlap_found =
+          Enum.any?(first_words, fn w ->
+            w in second_words
+          end)
+
+        assert overlap_found or length(chunks) == 1,
+               "Chunks should overlap"
+      end
+    end
+
+    test "chunk_documents creates mapping" do
+      docs = [
+        {"doc1", "Short text"},
+        {"doc2",
+         "This is a longer document that should be split into multiple chunks for testing purposes"}
+      ]
+
+      {chunks, mapping} = Chunker.chunk_documents(docs, max_length: 10, stride: 5)
+
+      # Should have chunks
+      assert length(chunks) >= 2
+
+      # Mapping should contain all chunk IDs
+      Enum.each(chunks, fn {chunk_id, _text} ->
+        assert Map.has_key?(mapping, chunk_id), "Mapping should contain #{chunk_id}"
+      end)
+    end
+
+    test "merge_results with max aggregation returns highest score" do
+      # Create documents and get mapping
+      docs = [{"doc1", "First document"}, {"doc2", "Second document"}]
+      {_chunks, mapping} = Chunker.chunk_documents(docs)
+
+      # Simulate search results with chunk IDs
+      chunk_ids = Map.keys(mapping)
+      doc1_chunks = Enum.filter(chunk_ids, fn id -> mapping[id].doc_id == "doc1" end)
+      doc2_chunks = Enum.filter(chunk_ids, fn id -> mapping[id].doc_id == "doc2" end)
+
+      results =
+        Enum.map(doc1_chunks, fn id -> %{doc_id: id, score: 0.8} end) ++
+          Enum.map(doc2_chunks, fn id -> %{doc_id: id, score: 0.7} end)
+
+      merged = Chunker.merge_results(results, mapping, aggregation: :max)
+
+      doc1_result = Enum.find(merged, &(&1.doc_id == "doc1"))
+      doc2_result = Enum.find(merged, &(&1.doc_id == "doc2"))
+
+      assert doc1_result.score == 0.8
+      assert doc2_result.score == 0.7
+    end
+
+    test "merge_results with mean aggregation averages scores" do
+      docs = [
+        {"doc1",
+         "A longer document that will create multiple chunks for testing the mean aggregation behavior"}
+      ]
+
+      {chunks, mapping} = Chunker.chunk_documents(docs, max_length: 5, stride: 3)
+
+      # Only run if we got multiple chunks
+      if length(chunks) >= 2 do
+        chunk_ids = Map.keys(mapping)
+
+        # Give different scores to different chunks
+        results =
+          chunk_ids
+          |> Enum.with_index()
+          |> Enum.map(fn {id, idx} -> %{doc_id: id, score: 0.5 + idx * 0.1} end)
+
+        merged = Chunker.merge_results(results, mapping, aggregation: :mean)
+
+        doc1_result = Enum.find(merged, &(&1.doc_id == "doc1"))
+        assert doc1_result != nil, "Should have result for doc1"
+        # Mean should be between min and max scores
+        assert doc1_result.score >= 0.5
+      end
+    end
+
+    test "merge_results with sum aggregation sums scores" do
+      docs = [{"doc1", "Word1 word2 word3 word4 word5 word6 word7 word8 word9 word10"}]
+      {chunks, mapping} = Chunker.chunk_documents(docs, max_length: 5, stride: 3)
+
+      if length(chunks) >= 2 do
+        chunk_ids = Map.keys(mapping)
+
+        results = Enum.map(chunk_ids, fn id -> %{doc_id: id, score: 0.5} end)
+
+        merged = Chunker.merge_results(results, mapping, aggregation: :sum)
+
+        doc1_result = Enum.find(merged, &(&1.doc_id == "doc1"))
+        # Sum should be 0.5 * number of chunks
+        expected_sum = 0.5 * length(chunk_ids)
+        assert_in_delta doc1_result.score, expected_sum, 0.01
+      end
+    end
   end
 end

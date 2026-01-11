@@ -47,7 +47,7 @@ defmodule Stephen.EncoderTest do
     test "encodes query and pads to max_query_length" do
       {:ok, encoder} = Encoder.load()
 
-      embeddings = Encoder.encode_query(encoder, "hello world")
+      embeddings = Encoder.encode_query(encoder, "late night comedy")
 
       {seq_len, dim} = Nx.shape(embeddings)
       assert seq_len == 32
@@ -58,7 +58,7 @@ defmodule Stephen.EncoderTest do
     test "encodes query without padding" do
       {:ok, encoder} = Encoder.load()
 
-      embeddings = Encoder.encode_query(encoder, "hello world", pad: false)
+      embeddings = Encoder.encode_query(encoder, "late night comedy", pad: false)
 
       {seq_len, dim} = Nx.shape(embeddings)
       assert seq_len < 32
@@ -141,7 +141,7 @@ defmodule Stephen.EncoderTest do
     test "colbert encoder produces embeddings" do
       {:ok, encoder} = Encoder.load(model: "colbert-ir/colbertv2.0")
 
-      embeddings = Encoder.encode_query(encoder, "what is elixir?")
+      embeddings = Encoder.encode_query(encoder, "who is Stephen Colbert?")
       {seq_len, dim} = Nx.shape(embeddings)
 
       assert seq_len == 32
@@ -152,8 +152,8 @@ defmodule Stephen.EncoderTest do
     test "colbert embeddings match reference values" do
       {:ok, encoder} = Encoder.load(model: "colbert-ir/colbertv2.0")
 
-      # Encode "hello world" and check output shape and some values
-      embeddings = Encoder.encode_query(encoder, "hello world", pad: false)
+      # Encode "late night" and check output shape and some values
+      embeddings = Encoder.encode_query(encoder, "late night", pad: false)
       {_seq_len, dim} = Nx.shape(embeddings)
 
       assert dim == 128

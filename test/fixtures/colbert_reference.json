@@ -6,15 +6,15 @@
     "checkpoint": "colbert-ir/colbertv2.0"
   },
   "queries": [
-    "what is machine learning?",
-    "how does ColBERT work?",
-    "neural information retrieval"
+    "who is Stephen Colbert?",
+    "best late night comedy hosts",
+    "political satire on television"
   ],
   "docs": [
-    "Machine learning is a subset of artificial intelligence that enables systems to learn from data.",
-    "ColBERT uses late interaction with per-token embeddings for efficient neural retrieval.",
-    "Information retrieval systems help users find relevant documents in large collections.",
-    "Deep learning models have revolutionized natural language processing tasks."
+    "Stephen Colbert hosted The Colbert Report before taking over The Late Show from David Letterman.",
+    "Conan O'Brien is known for his self-deprecating humor, red hair, and Conan Without Borders specials.",
+    "Seth Meyers was head writer at SNL and now hosts Late Night with his A Closer Look segments.",
+    "John Oliver hosts Last Week Tonight on HBO with in-depth investigative comedy journalism."
   ],
   "query_embeddings": {
     "shape": [
@@ -25,83 +25,83 @@
     "dtype": "torch.float32",
     "sample_values": [
       [
-        0.040655,
-        0.061052,
-        -0.053721,
-        0.015507,
-        0.084076
+        0.094104,
+        -0.046934,
+        -0.089417,
+        0.069616,
+        0.00033
       ],
       [
-        0.123553,
-        0.035681,
-        0.003612,
-        0.063752,
-        0.161224
+        0.138298,
+        0.041399,
+        0.011192,
+        0.05626,
+        0.071479
       ],
       [
-        0.014495,
-        0.058119,
-        -0.119849,
-        -0.00832,
-        0.120345
+        0.066237,
+        -0.054082,
+        -0.091197,
+        0.167132,
+        0.01107
       ],
       [
-        -0.007293,
-        0.045231,
-        -0.084371,
-        -0.007492,
-        0.124075
+        0.092802,
+        -0.056044,
+        -0.086555,
+        0.142751,
+        0.035216
       ],
       [
-        0.120144,
-        0.030309,
-        0.040055,
-        0.052955,
-        0.138916
+        0.172841,
+        0.074173,
+        0.060809,
+        0.015179,
+        0.118585
       ]
     ]
   },
   "doc_embeddings": {
     "shape": [
       4,
-      20,
+      27,
       128
     ],
     "sample_values": [
       [
-        0.032574,
-        0.049892,
-        -0.111625,
-        0.006529,
-        0.057021
+        -0.004788,
+        -0.015912,
+        0.031691,
+        -0.031933,
+        -0.013483
       ],
       [
-        0.111236,
-        0.033521,
-        -0.040545,
-        0.033953,
-        0.167583
+        0.007511,
+        -0.002108,
+        0.014396,
+        -0.01154,
+        -0.006385
       ],
       [
-        0.121122,
-        0.029825,
-        0.004307,
-        0.042139,
-        0.153998
+        0.171094,
+        0.034974,
+        0.075429,
+        0.008717,
+        0.028936
       ],
       [
-        -0.035329,
-        0.110011,
-        -0.033502,
-        -0.124071,
-        -0.076554
+        0.093219,
+        -0.029619,
+        0.027738,
+        -0.096951,
+        0.000895
       ],
       [
-        -0.004623,
-        0.033973,
-        -0.143392,
-        -0.015997,
-        0.10211
+        -0.021791,
+        0.070673,
+        0.011011,
+        -0.063925,
+        0.091218
       ]
     ]
   },
@@ -110,69 +110,223 @@
       {
         "query_idx": 0,
         "doc_idx": 0,
-        "score": 30.036451
+        "score": 23.387804
       },
       {
         "query_idx": 0,
         "doc_idx": 1,
-        "score": 4.100722
+        "score": 11.059401
       },
       {
         "query_idx": 0,
         "doc_idx": 2,
-        "score": 5.945603
+        "score": 12.025353
       },
       {
         "query_idx": 0,
         "doc_idx": 3,
-        "score": 15.147742
+        "score": 10.756254
       }
     ],
     [
       {
         "query_idx": 1,
         "doc_idx": 0,
-        "score": 5.388658
+        "score": 18.75104
       },
       {
         "query_idx": 1,
         "doc_idx": 1,
-        "score": 24.10029
+        "score": 12.753716
       },
       {
         "query_idx": 1,
         "doc_idx": 2,
-        "score": 7.143242
+        "score": 21.674814
       },
       {
         "query_idx": 1,
         "doc_idx": 3,
-        "score": 3.291973
+        "score": 19.846783
       }
     ],
     [
       {
         "query_idx": 2,
         "doc_idx": 0,
-        "score": 8.79582
+        "score": 9.197324
       },
       {
         "query_idx": 2,
         "doc_idx": 1,
-        "score": 20.771442
+        "score": 8.019333
       },
       {
         "query_idx": 2,
         "doc_idx": 2,
-        "score": 19.847698
+        "score": 8.423847
       },
       {
         "query_idx": 2,
         "doc_idx": 3,
-        "score": 7.668553
+        "score": 11.932684
       }
     ]
   ],
+  "rankings": [
+    {
+      "query_idx": 0,
+      "query": "who is Stephen Colbert?",
+      "ranking": [
+        0,
+        2,
+        1,
+        3
+      ],
+      "top_doc": "Stephen Colbert hosted The Colbert Report before taking over The Late Show from David Letterman.",
+      "top_score": 23.387804
+    },
+    {
+      "query_idx": 1,
+      "query": "best late night comedy hosts",
+      "ranking": [
+        2,
+        3,
+        0,
+        1
+      ],
+      "top_doc": "Seth Meyers was head writer at SNL and now hosts Late Night with his A Closer Look segments.",
+      "top_score": 21.674814
+    },
+    {
+      "query_idx": 2,
+      "query": "political satire on television",
+      "ranking": [
+        3,
+        0,
+        2,
+        1
+      ],
+      "top_doc": "John Oliver hosts Last Week Tonight on HBO with in-depth investigative comedy journalism.",
+      "top_score": 11.932684
+    }
+  ],
+  "compression_tests": {
+    "bit_pack_1bit": [
+      {
+        "input": [
+          1,
+          0,
+          1,
+          0,
+          1,
+          0,
+          1,
+          0
+        ],
+        "packed": [
+          170
+        ]
+      },
+      {
+        "input": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "packed": [
+          255
+        ]
+      },
+      {
+        "input": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "packed": [
+          0
+        ]
+      },
+      {
+        "input": [
+          1,
+          1,
+          0,
+          0,
+          1,
+          1,
+          0,
+          0
+        ],
+        "packed": [
+          204
+        ]
+      }
+    ],
+    "bit_pack_2bit": [
+      {
+        "input": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "packed": [
+          27
+        ]
+      },
+      {
+        "input": [
+          3,
+          3,
+          3,
+          3
+        ],
+        "packed": [
+          255
+        ]
+      },
+      {
+        "input": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "packed": [
+          0
+        ]
+      },
+      {
+        "input": [
+          1,
+          2,
+          1,
+          2
+        ],
+        "packed": [
+          102
+        ]
+      }
+    ],
+    "compression_ratios": {
+      "dim_128_1bit": 28.44,
+      "dim_128_2bit": 15.06,
+      "dim_128_4bit": 7.76,
+      "dim_128_8bit": 3.94
+    }
+  },
   "tokenization": {
     "test_text": "Hello, world! This is a test. How are you?",
     "test_tokens": [

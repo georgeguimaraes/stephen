@@ -15,15 +15,15 @@ defmodule Stephen do
 
       # Index some documents
       documents = [
-        {"doc1", "The quick brown fox jumps over the lazy dog"},
-        {"doc2", "Machine learning is a subset of artificial intelligence"},
-        {"doc3", "Elixir is a functional programming language"}
+        {"colbert", "Stephen Colbert hosted The Colbert Report before The Late Show"},
+        {"conan", "Conan O'Brien is known for his self-deprecating humor and talk show"},
+        {"seth", "Seth Meyers was head writer at SNL before hosting Late Night"}
       ]
       index = Stephen.index(encoder, index, documents)
 
       # Search
-      results = Stephen.search(encoder, index, "programming languages")
-      # => [%{doc_id: "doc3", score: 12.5}, ...]
+      results = Stephen.search(encoder, index, "late night comedy")
+      # => [%{doc_id: "colbert", score: 12.5}, ...]
 
   ## Architecture
 
@@ -85,7 +85,7 @@ defmodule Stephen do
 
   ## Examples
 
-      documents = [{"doc1", "Hello world"}, {"doc2", "Goodbye world"}]
+      documents = [{"colbert", "Stephen Colbert"}, {"conan", "Conan O'Brien"}]
       index = Stephen.index(encoder, index, documents)
   """
   @spec index(encoder(), index(), [{doc_id(), String.t()}]) :: index()
@@ -100,8 +100,8 @@ defmodule Stephen do
 
   ## Examples
 
-      results = Stephen.search(encoder, index, "hello")
-      # => [%{doc_id: "doc1", score: 15.2}, %{doc_id: "doc2", score: 8.1}]
+      results = Stephen.search(encoder, index, "comedy host")
+      # => [%{doc_id: "colbert", score: 15.2}, %{doc_id: "conan", score: 8.1}]
   """
   @spec search(encoder(), index(), String.t(), keyword()) :: [search_result()]
   defdelegate search(encoder, index, query, opts \\ []), to: Retriever
@@ -114,7 +114,7 @@ defmodule Stephen do
 
   ## Examples
 
-      results = Stephen.rerank(encoder, index, "hello", ["doc1", "doc2"])
+      results = Stephen.rerank(encoder, index, "satirical comedy", ["colbert", "conan"])
   """
   @spec rerank(encoder(), index(), String.t(), [doc_id()]) :: [search_result()]
   defdelegate rerank(encoder, index, query, doc_ids), to: Retriever
@@ -141,12 +141,12 @@ defmodule Stephen do
 
       # Rerank search results from Elasticsearch
       candidates = [
-        {"doc1", "Elixir is a dynamic, functional language"},
-        {"doc2", "Python is a popular programming language"},
-        {"doc3", "Erlang powers distributed systems"}
+        {"colbert", "Stephen Colbert does satirical political commentary"},
+        {"conan", "Conan O'Brien is known for absurdist comedy bits"},
+        {"seth", "Seth Meyers does A Closer Look political segments"}
       ]
-      results = Stephen.rerank_texts(encoder, "functional programming", candidates)
-      # => [%{doc_id: "doc1", score: 18.5}, %{doc_id: "doc2", score: 12.1}, ...]
+      results = Stephen.rerank_texts(encoder, "political comedy", candidates)
+      # => [%{doc_id: "colbert", score: 18.5}, %{doc_id: "seth", score: 12.1}, ...]
 
       # Return only top 2
       results = Stephen.rerank_texts(encoder, query, candidates, top_k: 2)
@@ -193,7 +193,7 @@ defmodule Stephen do
 
   ## Examples
 
-      results = Stephen.search_with_prf(encoder, index, "machine learning")
+      results = Stephen.search_with_prf(encoder, index, "late night hosts")
 
       # Tune PRF parameters
       results = Stephen.search_with_prf(encoder, index, query,
@@ -222,11 +222,11 @@ defmodule Stephen do
 
   ## Examples
 
-      explanation = Stephen.explain(encoder, "functional programming", "Elixir is functional")
+      explanation = Stephen.explain(encoder, "satirical comedy", "Colbert is a satirical host")
       # => %{
       #   score: 15.2,
       #   matches: [
-      #     %{query_token: "functional", doc_token: "functional", similarity: 0.95, ...},
+      #     %{query_token: "satirical", doc_token: "satirical", similarity: 0.95, ...},
       #     ...
       #   ]
       # }

@@ -148,16 +148,16 @@ defmodule Stephen.RetrieverTest do
       {:ok, encoder} = Stephen.Encoder.load()
 
       documents = [
-        {"doc1", "Elixir is a dynamic, functional programming language"},
-        {"doc2", "Python is used for machine learning and data science"},
-        {"doc3", "JavaScript runs in web browsers"}
+        {"colbert", "Stephen Colbert hosts The Late Show with satirical political comedy"},
+        {"conan", "Conan O'Brien is known for travel shows and absurdist humor"},
+        {"letterman", "David Letterman retired from late night television"}
       ]
 
-      results = Retriever.rerank_texts(encoder, "functional programming language", documents)
+      results = Retriever.rerank_texts(encoder, "satirical political comedy", documents)
 
       assert length(results) == 3
-      # doc1 should rank highest (mentions functional programming language)
-      assert hd(results).doc_id == "doc1"
+      # colbert should rank highest (mentions satirical political comedy)
+      assert hd(results).doc_id == "colbert"
       assert is_float(hd(results).score)
     end
 
@@ -166,12 +166,12 @@ defmodule Stephen.RetrieverTest do
       {:ok, encoder} = Stephen.Encoder.load()
 
       documents = [
-        {"doc1", "The quick brown fox"},
-        {"doc2", "Jumps over the lazy dog"},
-        {"doc3", "Hello world example"}
+        {"colbert", "Stephen Colbert does monologues"},
+        {"conan", "Conan O'Brien interviews guests"},
+        {"seth", "Seth Meyers hosts Late Night"}
       ]
 
-      results = Retriever.rerank_texts(encoder, "fox jumping", documents, top_k: 1)
+      results = Retriever.rerank_texts(encoder, "comedy monologue", documents, top_k: 1)
 
       assert length(results) == 1
     end

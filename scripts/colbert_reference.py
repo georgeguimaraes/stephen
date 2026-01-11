@@ -10,13 +10,29 @@ Usage:
 """
 import json
 import sys
+import os
+import warnings
+import numpy as np
 
 def main():
+    # Suppress warnings from colbert/torch that pollute stdout
+    warnings.filterwarnings("ignore")
+    os.environ["COLBERT_LOAD_TORCH_EXTENSION_VERBOSE"] = "False"
+
+    # Redirect stdout during imports to suppress colbert's print statements
+    import io
+    old_stdout = sys.stdout
+    sys.stdout = io.StringIO()
+
     try:
+        import logging
+        logging.getLogger().setLevel(logging.ERROR)
+
         import torch
         from colbert.modeling.checkpoint import Checkpoint
         from colbert.infra import ColBERTConfig
     except ImportError:
+        sys.stdout = old_stdout
         print(json.dumps({
             "error": "colbert-ai not installed. Run: pip install colbert-ai torch"
         }))
@@ -33,18 +49,21 @@ def main():
     print("Loading ColBERT checkpoint...", file=sys.stderr)
     checkpoint = Checkpoint(config.checkpoint, colbert_config=config)
 
+    # Restore stdout after all colbert initialization
+    sys.stdout = old_stdout
+
     # Test cases - same texts we'll use in Elixir tests
     queries = [
-        "what is machine learning?",
-        "how does ColBERT work?",
-        "neural information retrieval"
+        "who is Stephen Colbert?",
+        "best late night comedy hosts",
+        "political satire on television"
     ]
 
     docs = [
-        "Machine learning is a subset of artificial intelligence that enables systems to learn from data.",
-        "ColBERT uses late interaction with per-token embeddings for efficient neural retrieval.",
-        "Information retrieval systems help users find relevant documents in large collections.",
-        "Deep learning models have revolutionized natural language processing tasks."
+        "Stephen Colbert hosted The Colbert Report before taking over The Late Show from David Letterman.",
+        "Conan O'Brien is known for his self-deprecating humor, red hair, and Conan Without Borders specials.",
+        "Seth Meyers was head writer at SNL and now hosts Late Night with his A Closer Look segments.",
+        "John Oliver hosts Last Week Tonight on HBO with in-depth investigative comedy journalism."
     ]
 
     print("Encoding queries...", file=sys.stderr)
@@ -104,6 +123,46 @@ def main():
     test_token_ids = test_encoding['input_ids'][0].tolist()
     test_tokens = tokenizer.convert_ids_to_tokens(test_token_ids)
 
+    # Generate compression validation data
+    print("Generating compression validation data...", file=sys.stderr)
+
+    # Use first doc's embeddings for compression tests
+    test_embeddings = D_tensor[0].cpu().numpy()  # shape: [seq_len, dim]
+
+    # Generate bit packing test cases
+    # 1-bit: pack 8 values per byte
+    bit_pack_tests_1bit = []
+    for test_vals in [[1,0,1,0,1,0,1,0], [1,1,1,1,1,1,1,1], [0,0,0,0,0,0,0,0], [1,1,0,0,1,1,0,0]]:
+        packed = np.packbits(np.array(test_vals, dtype=np.uint8))
+        bit_pack_tests_1bit.append({
+            "input": test_vals,
+            "packed": packed.tolist()
+        })
+
+    # 2-bit: pack 4 values per byte
+    bit_pack_tests_2bit = []
+    for test_vals in [[0,1,2,3], [3,3,3,3], [0,0,0,0], [1,2,1,2]]:
+        # Pack 4 2-bit values into 1 byte: val0<<6 | val1<<4 | val2<<2 | val3
+        packed = (test_vals[0] << 6) | (test_vals[1] << 4) | (test_vals[2] << 2) | test_vals[3]
+        bit_pack_tests_2bit.append({
+            "input": test_vals,
+            "packed": [packed]
+        })
+
+    # Retrieval ranking validation
+    print("Computing retrieval rankings...", file=sys.stderr)
+    rankings = []
+    for i in range(num_queries):
+        query_scores = maxsim_scores[i]
+        sorted_docs = sorted(query_scores, key=lambda x: x['score'], reverse=True)
+        rankings.append({
+            "query_idx": i,
+            "query": queries[i],
+            "ranking": [s['doc_idx'] for s in sorted_docs],
+            "top_doc": docs[sorted_docs[0]['doc_idx']],
+            "top_score": sorted_docs[0]['score']
+        })
+
     results = {
         "config": {
             "doc_maxlen": config.doc_maxlen,
@@ -124,6 +183,17 @@ def main():
             "sample_values": [[round(v, 6) for v in row] for row in D_tensor[0, :5, :5].tolist()]
         },
         "maxsim_scores": maxsim_scores,
+        "rankings": rankings,
+        "compression_tests": {
+            "bit_pack_1bit": bit_pack_tests_1bit,
+            "bit_pack_2bit": bit_pack_tests_2bit,
+            "compression_ratios": {
+                "dim_128_1bit": round(128 * 4 / (2 + 16), 2),  # 28.44
+                "dim_128_2bit": round(128 * 4 / (2 + 32), 2),  # 15.06
+                "dim_128_4bit": round(128 * 4 / (2 + 64), 2),  # 7.76
+                "dim_128_8bit": round(128 * 4 / (2 + 128), 2)  # 3.94
+            }
+        },
         "tokenization": {
             "test_text": test_text,
             "test_tokens": test_tokens,

@@ -398,11 +398,11 @@ defmodule Stephen.Encoder do
 
   ## Examples
 
-      tokens = Stephen.Encoder.tokenize(encoder, "hello world")
-      # => ["[CLS]", "[D]", "hello", "world", "[SEP]"]
+      tokens = Stephen.Encoder.tokenize(encoder, "Stephen Colbert")
+      # => ["[CLS]", "[D]", "stephen", "colbert", "[SEP]"]
 
-      tokens = Stephen.Encoder.tokenize(encoder, "hello", type: :query)
-      # => ["[CLS]", "[Q]", "hello", "[MASK]", ..., "[SEP]"]
+      tokens = Stephen.Encoder.tokenize(encoder, "Conan", type: :query)
+      # => ["[CLS]", "[Q]", "conan", "[MASK]", ..., "[SEP]"]
   """
   @spec tokenize(encoder(), String.t(), keyword()) :: [String.t()]
   def tokenize(encoder, text, opts \\ []) do
