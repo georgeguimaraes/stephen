@@ -20,7 +20,7 @@ defmodule Stephen.ChunkerTest do
       chunks = Chunker.chunk_text(text, chunk_size: 100, chunk_overlap: 20)
 
       # Should have multiple chunks split at sentence boundaries
-      assert length(chunks) >= 1
+      assert chunks != []
 
       # Each chunk should be a proper substring
       for chunk <- chunks do
@@ -41,7 +41,7 @@ defmodule Stephen.ChunkerTest do
 
       chunks = Chunker.chunk_text(text, chunk_size: 50, format: :markdown)
 
-      assert length(chunks) >= 1
+      assert chunks != []
     end
 
     test "respects chunk_size parameter" do

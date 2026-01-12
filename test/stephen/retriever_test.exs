@@ -266,7 +266,7 @@ defmodule Stephen.RetrieverTest do
 
       # Test extract + combine manually
       initial_results = Retriever.search_with_embeddings(query_emb, index, top_k: 2)
-      assert length(initial_results) > 0
+      assert initial_results != []
 
       expansion = Retriever.extract_expansion_embeddings(index, initial_results, query_emb, 3)
       {num_expansion, _} = Nx.shape(expansion)

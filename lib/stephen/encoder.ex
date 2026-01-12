@@ -407,45 +407,49 @@ defmodule Stephen.Encoder do
   @spec tokenize(encoder(), String.t(), keyword()) :: [String.t()]
   def tokenize(encoder, text, opts \\ []) do
     type = Keyword.get(opts, :type, :document)
-    native_tokenizer = encoder.tokenizer.native_tokenizer
-
-    max_length =
-      case type do
-        :query -> Keyword.get(opts, :max_length, encoder.max_query_length)
-        :document -> Keyword.get(opts, :max_length, encoder.max_doc_length)
-      end
-
-    marked_text =
-      case type do
-        :query -> @query_marker <> " " <> text
-        :document -> @doc_marker <> " " <> text
-      end
+    max_length = tokenize_max_length(encoder, type, opts)
+    marked_text = tokenize_mark_text(text, type)
 
     configured_tokenizer =
       Bumblebee.configure(encoder.tokenizer, length: max_length, pad_direction: :right)
 
     inputs = Bumblebee.apply_tokenizer(configured_tokenizer, marked_text)
+    real_ids = extract_real_token_ids(inputs)
 
-    attention_mask = inputs["attention_mask"]
-    input_ids = inputs["input_ids"]
+    ids_to_tokens(real_ids, encoder.tokenizer.native_tokenizer)
+  end
 
-    mask =
-      case Nx.shape(attention_mask) do
-        {1, len} -> Nx.reshape(attention_mask, {len})
-        _ -> attention_mask
-      end
+  defp tokenize_max_length(encoder, type, opts) do
+    case type do
+      :query -> Keyword.get(opts, :max_length, encoder.max_query_length)
+      :document -> Keyword.get(opts, :max_length, encoder.max_doc_length)
+    end
+  end
 
-    ids =
-      case Nx.shape(input_ids) do
-        {1, len} -> Nx.reshape(input_ids, {len})
-        _ -> input_ids
-      end
+  defp tokenize_mark_text(text, type) do
+    case type do
+      :query -> @query_marker <> " " <> text
+      :document -> @doc_marker <> " " <> text
+    end
+  end
+
+  defp extract_real_token_ids(inputs) do
+    mask = flatten_tensor(inputs["attention_mask"])
+    ids = flatten_tensor(inputs["input_ids"])
 
     num_real_tokens = Nx.sum(mask) |> Nx.to_number() |> trunc()
-    real_ids = Nx.slice(ids, [0], [num_real_tokens]) |> Nx.to_flat_list()
+    Nx.slice(ids, [0], [num_real_tokens]) |> Nx.to_flat_list()
+  end
 
-    # Convert token IDs back to strings
-    Enum.map(real_ids, fn id ->
+  defp flatten_tensor(tensor) do
+    case Nx.shape(tensor) do
+      {1, len} -> Nx.reshape(tensor, {len})
+      _ -> tensor
+    end
+  end
+
+  defp ids_to_tokens(ids, native_tokenizer) do
+    Enum.map(ids, fn id ->
       case Tokenizers.Tokenizer.id_to_token(native_tokenizer, id) do
         token when is_binary(token) -> token
         _ -> "[UNK]"

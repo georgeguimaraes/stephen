@@ -248,14 +248,12 @@ defmodule Stephen.Scorer do
     separator = String.duplicate("-", 60) <> "\n"
 
     rows =
-      matches
-      |> Enum.map(fn m ->
+      Enum.map_join(matches, "\n", fn m ->
         q = String.pad_trailing(String.slice(m.query_token, 0, 20), 20)
         d = String.pad_trailing(String.slice(m.doc_token, 0, 20), 20)
         s = Float.round(m.similarity, 4)
         "#{q} -> #{d} #{s}"
       end)
-      |> Enum.join("\n")
 
     header <> col_header <> separator <> rows
   end
