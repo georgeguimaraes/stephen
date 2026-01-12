@@ -72,7 +72,7 @@ defmodule BenchCompare do
 
   defp load_json(path) do
     case File.read(path) do
-      {:ok, content} -> Jason.decode!(content)
+      {:ok, content} -> JSON.decode!(content)
       {:error, _} -> nil
     end
   end
