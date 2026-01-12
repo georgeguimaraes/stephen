@@ -129,6 +129,9 @@ See the [guides](guides/) for detailed documentation:
 - [Compression](guides/compression.md): residual quantization for memory efficiency
 - [Chunking](guides/chunking.md): handling long documents
 - [Configuration](guides/configuration.md): encoder and index options
+- [Reranking](guides/reranking.md): using Stephen as a second-stage reranker
+- [Query Expansion](guides/prf.md): pseudo-relevance feedback for better recall
+- [Debugging Scores](guides/explain.md): understanding why documents scored the way they did
 
 ## License
 
