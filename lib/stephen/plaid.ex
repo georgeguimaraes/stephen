@@ -14,6 +14,7 @@ defmodule Stephen.Plaid do
   This achieves sub-linear search time for large collections.
   """
 
+  alias Stephen.KMeans
   alias Stephen.Scorer
 
   defstruct [
@@ -26,7 +27,7 @@ defmodule Stephen.Plaid do
   ]
 
   @type t :: %__MODULE__{
-          centroids: Nx.Tensor.t(),
+          centroids: Nx.Tensor.t() | nil,
           inverted_index: %{non_neg_integer() => MapSet.t()},
           doc_embeddings: %{term() => Nx.Tensor.t()},
           num_centroids: pos_integer(),
@@ -162,6 +163,108 @@ defmodule Stephen.Plaid do
   end
 
   @doc """
+  Removes a document from the index.
+
+  ## Arguments
+    * `plaid` - PLAID index
+    * `doc_id` - The document ID to remove
+
+  ## Returns
+    Updated PLAID index, or the original index if doc_id not found.
+  """
+  @spec delete(t(), doc_id()) :: t()
+  def delete(plaid, doc_id) do
+    case Map.get(plaid.doc_embeddings, doc_id) do
+      nil ->
+        plaid
+
+      embeddings ->
+        %{centroids: centroids, inverted_index: inv_idx} = plaid
+
+        # Find which centroids this document was indexed under
+        centroid_ids = find_nearest_centroids(embeddings, centroids)
+        unique_centroids = centroid_ids |> Nx.to_flat_list() |> Enum.uniq()
+
+        # Remove doc from inverted index entries
+        new_inv_idx = remove_doc_from_inverted_index(inv_idx, unique_centroids, doc_id)
+
+        %{
+          plaid
+          | inverted_index: new_inv_idx,
+            doc_embeddings: Map.delete(plaid.doc_embeddings, doc_id),
+            doc_count: max(plaid.doc_count - 1, 0)
+        }
+    end
+  end
+
+  defp remove_doc_from_inverted_index(inv_idx, centroid_ids, doc_id) do
+    Enum.reduce(centroid_ids, inv_idx, fn centroid_id, acc ->
+      remove_doc_from_centroid(acc, centroid_id, doc_id)
+    end)
+  end
+
+  defp remove_doc_from_centroid(inv_idx, centroid_id, doc_id) do
+    case Map.get(inv_idx, centroid_id) do
+      nil ->
+        inv_idx
+
+      doc_set ->
+        new_set = MapSet.delete(doc_set, doc_id)
+
+        if MapSet.size(new_set) == 0 do
+          Map.delete(inv_idx, centroid_id)
+        else
+          Map.put(inv_idx, centroid_id, new_set)
+        end
+    end
+  end
+
+  @doc """
+  Removes multiple documents from the index.
+
+  ## Arguments
+    * `plaid` - PLAID index
+    * `doc_ids` - List of document IDs to remove
+
+  ## Returns
+    Updated PLAID index.
+  """
+  @spec delete_all(t(), [doc_id()]) :: t()
+  def delete_all(plaid, doc_ids) do
+    Enum.reduce(doc_ids, plaid, fn doc_id, acc ->
+      delete(acc, doc_id)
+    end)
+  end
+
+  @doc """
+  Updates a document in the index by replacing its embeddings.
+
+  This is equivalent to deleting and re-adding the document.
+
+  ## Arguments
+    * `plaid` - PLAID index
+    * `doc_id` - The document ID to update
+    * `embeddings` - New embeddings tensor
+
+  ## Returns
+    Updated PLAID index.
+  """
+  @spec update(t(), doc_id(), Nx.Tensor.t()) :: t()
+  def update(plaid, doc_id, embeddings) do
+    plaid
+    |> delete(doc_id)
+    |> add_document(doc_id, embeddings)
+  end
+
+  @doc """
+  Checks if a document exists in the index.
+  """
+  @spec has_doc?(t(), doc_id()) :: boolean()
+  def has_doc?(plaid, doc_id) do
+    Map.has_key?(plaid.doc_embeddings, doc_id)
+  end
+
+  @doc """
   Returns the number of documents in the index.
   """
   @spec size(t()) :: non_neg_integer()
@@ -273,53 +376,18 @@ defmodule Stephen.Plaid do
     end
   end
 
-  # Train centroids using K-means
+  # Train centroids using K-means (cosine distance, normalized)
   defp train_centroids(embeddings, num_centroids) do
-    {n, _dim} = Nx.shape(embeddings)
-
-    # Ensure we don't have more centroids than embeddings
-    k = min(num_centroids, n)
-
-    # Initialize centroids by random selection
-    key = Nx.Random.key(42)
-    {indices, _key} = Nx.Random.randint(key, 0, n, shape: {k})
-    initial_centroids = Nx.take(embeddings, indices, axis: 0)
-
-    # Run K-means iterations
-    Enum.reduce(1..@default_kmeans_iterations, initial_centroids, fn _i, centroids ->
-      assignments = find_nearest_centroids(embeddings, centroids)
-      update_centroids(embeddings, assignments, k)
-    end)
+    KMeans.train(embeddings, num_centroids,
+      iterations: @default_kmeans_iterations,
+      distance: :cosine,
+      normalize: true
+    )
   end
 
-  # Find nearest centroid for each embedding
+  # Find nearest centroid for each embedding (cosine similarity)
   defp find_nearest_centroids(embeddings, centroids) do
-    # Compute pairwise cosine similarity (embeddings should be normalized)
-    similarities = Nx.dot(embeddings, Nx.transpose(centroids))
-    Nx.argmax(similarities, axis: 1)
-  end
-
-  # Update centroids as mean of assigned points
-  defp update_centroids(embeddings, assignments, k) do
-    centroids =
-      for i <- 0..(k - 1) do
-        mask = Nx.equal(assignments, i)
-        count = Nx.sum(mask) |> Nx.to_number()
-
-        if count > 0 do
-          mask_expanded = Nx.reshape(mask, {:auto, 1})
-          masked = Nx.multiply(embeddings, mask_expanded)
-          sum = Nx.sum(masked, axes: [0])
-          centroid = Nx.divide(sum, count)
-          # L2 normalize centroid
-          norm = Nx.LinAlg.norm(centroid)
-          Nx.divide(centroid, Nx.max(norm, 1.0e-9))
-        else
-          embeddings[0]
-        end
-      end
-
-    Nx.stack(centroids)
+    KMeans.find_nearest(embeddings, centroids, :cosine)
   end
 
   # Get candidate documents from inverted index
