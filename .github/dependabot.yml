@@ -4,16 +4,8 @@ updates:
     directory: /
     schedule:
       interval: daily
-    groups:
-      elixir-deps:
-        patterns:
-          - "*"
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: daily
-    groups:
-      actions:
-        patterns:
-          - "*"
