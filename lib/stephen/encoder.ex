@@ -13,6 +13,8 @@ defmodule Stephen.Encoder do
   - Optional linear projection to reduce embedding dimension
   """
 
+  alias Bumblebee.HuggingFace.Hub
+
   import Nx.Defn
 
   @type encoder :: %{
@@ -231,9 +233,9 @@ defmodule Stephen.Encoder do
   # Load ColBERT projection weights from SafeTensors file
   defp load_colbert_projection(model_name) do
     # Use Bumblebee's HuggingFace Hub module for proper caching
-    url = Bumblebee.HuggingFace.Hub.file_url(model_name, "model.safetensors", nil)
+    url = Hub.file_url(model_name, "model.safetensors", nil)
 
-    with {:ok, path} <- Bumblebee.HuggingFace.Hub.cached_download(url, cache_scope: model_name) do
+    with {:ok, path} <- Hub.cached_download(url, cache_scope: model_name) do
       tensors = Safetensors.read!(path)
 
       # ColBERT stores projection as "linear.weight" with shape {output_dim, input_dim}
@@ -256,9 +258,9 @@ defmodule Stephen.Encoder do
   defp resolve_base_module(_model_name, module) when not is_nil(module), do: {:ok, module}
 
   defp resolve_base_module(model_name, nil) do
-    url = Bumblebee.HuggingFace.Hub.file_url(model_name, "config.json", nil)
+    url = Hub.file_url(model_name, "config.json", nil)
 
-    with {:ok, path} <- Bumblebee.HuggingFace.Hub.cached_download(url, cache_scope: model_name),
+    with {:ok, path} <- Hub.cached_download(url, cache_scope: model_name),
          {:ok, content} <- File.read(path),
          {:ok, config} <- JSON.decode(content) do
       model_type = Map.get(config, "model_type", "bert")

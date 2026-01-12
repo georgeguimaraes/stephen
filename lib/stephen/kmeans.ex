@@ -6,6 +6,8 @@ defmodule Stephen.KMeans do
   both L2 (default Scholar) and cosine distance use cases.
   """
 
+  alias Scholar.Cluster.KMeans
+
   @default_iterations 10
   @default_seed 42
 
@@ -37,7 +39,7 @@ defmodule Stephen.KMeans do
 
     # Scholar uses L2 distance internally
     model =
-      Scholar.Cluster.KMeans.fit(embeddings,
+      KMeans.fit(embeddings,
         num_clusters: k,
         max_iterations: iterations,
         num_runs: 1,
@@ -74,8 +76,8 @@ defmodule Stephen.KMeans do
 
   def find_nearest(embeddings, centroids, :l2) do
     # Use Scholar's predict which uses L2 distance
-    model = %Scholar.Cluster.KMeans{clusters: centroids}
-    Scholar.Cluster.KMeans.predict(model, embeddings)
+    model = %KMeans{clusters: centroids}
+    KMeans.predict(model, embeddings)
   end
 
   # L2 normalize each centroid
