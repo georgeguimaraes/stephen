@@ -5,18 +5,37 @@ defmodule Stephen.Compression do
   Compresses embeddings using centroid-based representation:
   1. Learn K centroids using K-means clustering
   2. For each embedding, store centroid ID + quantized residual
-  3. Achieves ~6x compression while maintaining retrieval quality
+  3. Achieves compression while maintaining retrieval quality
+
+  ## Compression Levels
+
+  Supports multiple quantization bit depths via `:residual_bits`:
+
+  - `residual_bits: 8` (default) - 8-bit quantization, ~4-6x compression
+  - `residual_bits: 2` - 2-bit quantization, ~16x compression
+  - `residual_bits: 1` - Binary/1-bit quantization, ~32x compression
+
+  Lower bit depths trade retrieval quality for smaller index size.
+
+  ## Storage Format
+
+  For 128-dim embeddings:
+  - 8-bit: 2 bytes (centroid) + 128 bytes (residuals) = 130 bytes
+  - 2-bit: 2 bytes (centroid) + 32 bytes (packed) = 34 bytes
+  - 1-bit: 2 bytes (centroid) + 16 bytes (packed) = 18 bytes
 
   ## How it works
 
-  Instead of storing full float32 embeddings, we store:
+  Instead of storing full float32 embeddings (512 bytes), we store:
   - Centroid ID (2 bytes for 65536 centroids)
-  - Quantized residual (1 byte per dimension)
+  - Quantized residual (packed bits)
 
   To reconstruct: embedding ≈ centroid[id] + dequantize(residual)
   """
 
   import Nx.Defn
+
+  alias Stephen.KMeans
 
   defstruct [:centroids, :num_centroids, :embedding_dim, :residual_bits]
 
@@ -66,8 +85,13 @@ defmodule Stephen.Compression do
 
     {_n, embedding_dim} = Nx.shape(all_embeddings)
 
-    # Train centroids using K-means
-    centroids = kmeans(all_embeddings, num_centroids, iterations)
+    # Train centroids using K-means (L2 distance, no normalization)
+    centroids =
+      KMeans.train(all_embeddings, num_centroids,
+        iterations: iterations,
+        distance: :l2,
+        normalize: false
+      )
 
     %__MODULE__{
       centroids: centroids,
@@ -187,85 +211,220 @@ defmodule Stephen.Compression do
     end
   end
 
-  # K-means clustering implementation
-  defp kmeans(embeddings, k, iterations) do
-    {n, dim} = Nx.shape(embeddings)
-
-    # Initialize centroids by random selection from embeddings
-    key = Nx.Random.key(42)
-    {indices, _key} = Nx.Random.randint(key, 0, n, shape: {k})
-    initial_centroids = Nx.take(embeddings, indices, axis: 0)
-
-    # Run K-means iterations
-    Enum.reduce(1..iterations, initial_centroids, fn _i, centroids ->
-      # Assign each embedding to nearest centroid
-      assignments = find_nearest_centroids(embeddings, centroids)
-
-      # Update centroids as mean of assigned embeddings
-      update_centroids(embeddings, assignments, k, dim)
-    end)
-  end
-
-  # Find nearest centroid for each embedding
+  # Find nearest centroid for each embedding using L2 distance
   defnp find_nearest_centroids(embeddings, centroids) do
     # embeddings: {n, dim}, centroids: {k, dim}
-    # Compute pairwise distances
     # Using squared L2 distance: ||a - b||^2 = ||a||^2 + ||b||^2 - 2*a.b
     emb_sq = Nx.sum(Nx.pow(embeddings, 2), axes: [1], keep_axes: true)
     cent_sq = Nx.sum(Nx.pow(centroids, 2), axes: [1])
     dot_product = Nx.dot(embeddings, Nx.transpose(centroids))
 
     distances = emb_sq + cent_sq - 2 * dot_product
-
-    # Return index of minimum distance for each embedding
     Nx.argmin(distances, axis: 1)
   end
 
-  # Update centroids as mean of assigned points
-  defp update_centroids(embeddings, assignments, k, _dim) do
-    # This is a sequential operation for correctness
-    # Could be optimized with scatter operations
-    centroids =
-      for i <- 0..(k - 1) do
-        mask = Nx.equal(assignments, i)
-        count = Nx.sum(mask) |> Nx.to_number()
+  # Quantize residuals to specified bit depth
+  # Like Python ColBERT, uses fixed scale - centroids capture magnitude
+  defp quantize_residuals(residuals, 1) do
+    # 1-bit: sign only, pack 8 bits per byte
+    # positive -> 1, negative/zero -> 0
+    bits = Nx.greater(residuals, 0) |> Nx.as_type(:u8)
+    pack_bits(bits, 1)
+  end
 
-        if count > 0 do
-          # Expand mask to match embedding dimensions
-          mask_expanded = Nx.reshape(mask, {:auto, 1})
-          masked = Nx.multiply(embeddings, mask_expanded)
-          sum = Nx.sum(masked, axes: [0])
-          Nx.divide(sum, count)
-        else
-          # Keep centroid unchanged if no points assigned
-          # Use a random embedding as fallback
-          embeddings[0]
-        end
+  defp quantize_residuals(residuals, 2) do
+    # 2-bit: 4 levels, pack 4 values per byte
+    # Map residuals to [0, 3] range using fixed scale
+    clamped = Nx.clip(residuals, -1.0, 1.0)
+    # Map [-1, 1] to [0, 3]
+    quantized = Nx.round(Nx.multiply(Nx.add(clamped, 1.0), 1.5))
+    quantized = Nx.clip(quantized, 0, 3) |> Nx.as_type(:u8)
+    pack_bits(quantized, 2)
+  end
+
+  defp quantize_residuals(residuals, bits) when bits in [4, 8] do
+    # 4-bit or 8-bit: use fixed scale like Python ColBERT
+    # Residuals are small (difference from centroid), so fixed range works
+    clamped = Nx.clip(residuals, -1.0, 1.0)
+    levels = :math.pow(2, bits) - 1
+    # Map [-1, 1] to [0, levels]
+    quantized = Nx.round(Nx.multiply(Nx.add(clamped, 1), levels / 2))
+
+    if bits == 4 do
+      pack_bits(Nx.as_type(quantized, :u8), 4)
+    else
+      Nx.as_type(quantized, :u8)
+    end
+  end
+
+  # Dequantize residuals back to float using fixed scale (like Python ColBERT)
+  defp dequantize_residuals(quantized, 1) do
+    # 1-bit: unpack and map 0->-1, 1->+1
+    bits = unpack_bits(quantized, 1)
+    # Map {0, 1} to {-1, +1}
+    Nx.subtract(Nx.multiply(bits, 2.0), 1.0)
+  end
+
+  defp dequantize_residuals(quantized, 2) do
+    # 2-bit: unpack and map [0,3] to [-1, 1]
+    values = unpack_bits(quantized, 2)
+    # Map [0, 3] to [-1, 1]
+    Nx.subtract(Nx.divide(values, 1.5), 1.0)
+  end
+
+  defp dequantize_residuals(quantized, bits) when bits in [4, 8] do
+    values =
+      if bits == 4 do
+        unpack_bits(quantized, 4)
+      else
+        Nx.as_type(quantized, :f32)
       end
 
-    Nx.stack(centroids)
+    levels = :math.pow(2, bits) - 1
+    # Map [0, levels] to [-1, 1]
+    Nx.subtract(Nx.divide(values, levels / 2), 1)
   end
 
-  # Quantize residuals to specified bit depth
-  defp quantize_residuals(residuals, bits) do
-    # Scale residuals to [0, 2^bits - 1] range
-    max_val = Nx.reduce_max(Nx.abs(residuals))
-    # Avoid division by zero
-    max_val = Nx.max(max_val, 1.0e-9)
+  # Pack values into bytes
+  # 1-bit: 8 values per byte
+  # 2-bit: 4 values per byte
+  # 4-bit: 2 values per byte
+  defp pack_bits(values, 1) do
+    {n, dim} = Nx.shape(values)
+    # Ensure dim is multiple of 8
+    padded_dim = ceil(dim / 8) * 8
+    padding = padded_dim - dim
 
-    # Scale to [-1, 1] then to [0, 2^bits - 1]
-    levels = :math.pow(2, bits) - 1
-    scaled = Nx.divide(residuals, max_val)
-    quantized = Nx.round(Nx.multiply(Nx.add(scaled, 1), levels / 2))
+    padded =
+      if padding > 0 do
+        Nx.pad(values, 0, [{0, 0, 0}, {0, padding, 0}])
+      else
+        values
+      end
 
-    # Store as uint8 (assuming bits <= 8)
-    Nx.as_type(quantized, :u8)
+    # Reshape to {n, dim/8, 8} and pack
+    reshaped = Nx.reshape(padded, {n, div(padded_dim, 8), 8})
+
+    # Pack bits: multiply by powers of 2 and sum
+    weights = Nx.tensor([128, 64, 32, 16, 8, 4, 2, 1], type: :u8)
+    packed = Nx.sum(Nx.multiply(reshaped, weights), axes: [2])
+    Nx.as_type(packed, :u8)
   end
 
-  # Dequantize residuals back to float
-  defp dequantize_residuals(quantized, bits) do
-    levels = :math.pow(2, bits) - 1
-    scaled = Nx.divide(Nx.as_type(quantized, :f32), levels / 2)
-    Nx.subtract(scaled, 1)
+  defp pack_bits(values, 2) do
+    {n, dim} = Nx.shape(values)
+    # Ensure dim is multiple of 4
+    padded_dim = ceil(dim / 4) * 4
+    padding = padded_dim - dim
+
+    padded =
+      if padding > 0 do
+        Nx.pad(values, 0, [{0, 0, 0}, {0, padding, 0}])
+      else
+        values
+      end
+
+    # Reshape to {n, dim/4, 4} and pack
+    reshaped = Nx.reshape(padded, {n, div(padded_dim, 4), 4})
+
+    # Pack 4 2-bit values per byte: multiply by powers of 4 and sum
+    weights = Nx.tensor([64, 16, 4, 1], type: :u8)
+    packed = Nx.sum(Nx.multiply(reshaped, weights), axes: [2])
+    Nx.as_type(packed, :u8)
+  end
+
+  defp pack_bits(values, 4) do
+    {n, dim} = Nx.shape(values)
+    # Ensure dim is multiple of 2
+    padded_dim = ceil(dim / 2) * 2
+    padding = padded_dim - dim
+
+    padded =
+      if padding > 0 do
+        Nx.pad(values, 0, [{0, 0, 0}, {0, padding, 0}])
+      else
+        values
+      end
+
+    # Reshape to {n, dim/2, 2} and pack
+    reshaped = Nx.reshape(padded, {n, div(padded_dim, 2), 2})
+
+    # Pack 2 4-bit values per byte
+    weights = Nx.tensor([16, 1], type: :u8)
+    packed = Nx.sum(Nx.multiply(reshaped, weights), axes: [2])
+    Nx.as_type(packed, :u8)
+  end
+
+  # Unpack bytes to values
+  defp unpack_bits(packed, 1) do
+    {n, packed_dim} = Nx.shape(packed)
+    dim = packed_dim * 8
+
+    # Expand each byte to 8 bits
+    expanded = Nx.reshape(packed, {n, packed_dim, 1})
+    weights = Nx.tensor([[128, 64, 32, 16, 8, 4, 2, 1]], type: :u8)
+
+    # Bitwise AND and check if > 0
+    masked = Nx.bitwise_and(expanded, weights)
+    bits = Nx.greater(masked, 0) |> Nx.as_type(:f32)
+    Nx.reshape(bits, {n, dim})
+  end
+
+  defp unpack_bits(packed, 2) do
+    {n, packed_dim} = Nx.shape(packed)
+    dim = packed_dim * 4
+
+    # Expand each byte to 4 2-bit values
+    expanded = Nx.reshape(packed, {n, packed_dim, 1})
+
+    # Extract each 2-bit value using shifts and masks
+    # Value 0: bits 6-7, Value 1: bits 4-5, Value 2: bits 2-3, Value 3: bits 0-1
+    shifts = Nx.tensor([[6, 4, 2, 0]], type: :u8)
+    shifted = Nx.right_shift(expanded, shifts)
+    values = Nx.bitwise_and(shifted, 3) |> Nx.as_type(:f32)
+    Nx.reshape(values, {n, dim})
+  end
+
+  defp unpack_bits(packed, 4) do
+    {n, packed_dim} = Nx.shape(packed)
+    dim = packed_dim * 2
+
+    # Expand each byte to 2 4-bit values
+    expanded = Nx.reshape(packed, {n, packed_dim, 1})
+
+    # Extract each 4-bit value
+    shifts = Nx.tensor([[4, 0]], type: :u8)
+    shifted = Nx.right_shift(expanded, shifts)
+    values = Nx.bitwise_and(shifted, 15) |> Nx.as_type(:f32)
+    Nx.reshape(values, {n, dim})
+  end
+
+  @doc """
+  Returns the compression ratio for given settings.
+
+  ## Examples
+
+      iex> Stephen.Compression.compression_ratio(128, 8)
+      3.94
+      iex> Stephen.Compression.compression_ratio(128, 1)
+      28.44
+  """
+  @spec compression_ratio(pos_integer(), pos_integer()) :: float()
+  def compression_ratio(embedding_dim, residual_bits) do
+    # float32
+    original_bytes = embedding_dim * 4
+    # uint16 for centroid ID
+    centroid_bytes = 2
+
+    residual_bytes =
+      case residual_bits do
+        1 -> div(embedding_dim, 8)
+        2 -> div(embedding_dim, 4)
+        4 -> div(embedding_dim, 2)
+        8 -> embedding_dim
+      end
+
+    compressed_bytes = centroid_bytes + residual_bytes
+    Float.round(original_bytes / compressed_bytes, 2)
   end
 end
