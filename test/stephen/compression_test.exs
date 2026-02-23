@@ -162,8 +162,9 @@ defmodule Stephen.CompressionTest do
 
       compressed = Compression.compress(compression, embeddings)
 
-      # 2-bit: 128 dims packed into 32 bytes (4 values per byte)
-      assert Nx.shape(compressed.residuals) == {50, 32}
+      # 2-bit: logical shape preserved, Nx handles sub-byte storage
+      assert Nx.shape(compressed.residuals) == {50, 128}
+      assert Nx.type(compressed.residuals) == {:u, 2}
     end
 
     @tag :slow

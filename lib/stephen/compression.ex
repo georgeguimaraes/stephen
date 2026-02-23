@@ -233,28 +233,27 @@ defmodule Stephen.Compression do
   end
 
   defp quantize_residuals(residuals, 2) do
-    # 2-bit: 4 levels, pack 4 values per byte
-    # Map residuals to [0, 3] range using fixed scale
+    # 2-bit: 4 levels using native u2 type
     clamped = Nx.clip(residuals, -1.0, 1.0)
     # Map [-1, 1] to [0, 3]
     quantized = Nx.round(Nx.multiply(Nx.add(clamped, 1.0), 1.5))
-    quantized = Nx.clip(quantized, 0, 3) |> Nx.as_type(:u8)
-    pack_bits(quantized, 2)
+    Nx.clip(quantized, 0, 3) |> Nx.as_type(:u2)
   end
 
-  defp quantize_residuals(residuals, bits) when bits in [4, 8] do
-    # 4-bit or 8-bit: use fixed scale like Python ColBERT
-    # Residuals are small (difference from centroid), so fixed range works
+  defp quantize_residuals(residuals, 4) do
+    # 4-bit: 16 levels using native u4 type
     clamped = Nx.clip(residuals, -1.0, 1.0)
-    levels = :math.pow(2, bits) - 1
-    # Map [-1, 1] to [0, levels]
-    quantized = Nx.round(Nx.multiply(Nx.add(clamped, 1), levels / 2))
+    # Map [-1, 1] to [0, 15]
+    quantized = Nx.round(Nx.multiply(Nx.add(clamped, 1), 7.5))
+    Nx.as_type(quantized, :u4)
+  end
 
-    if bits == 4 do
-      pack_bits(Nx.as_type(quantized, :u8), 4)
-    else
-      Nx.as_type(quantized, :u8)
-    end
+  defp quantize_residuals(residuals, 8) do
+    # 8-bit: 256 levels
+    clamped = Nx.clip(residuals, -1.0, 1.0)
+    # Map [-1, 1] to [0, 255]
+    quantized = Nx.round(Nx.multiply(Nx.add(clamped, 1), 127.5))
+    Nx.as_type(quantized, :u8)
   end
 
   # Dequantize residuals back to float using fixed scale (like Python ColBERT)
@@ -266,29 +265,25 @@ defmodule Stephen.Compression do
   end
 
   defp dequantize_residuals(quantized, 2) do
-    # 2-bit: unpack and map [0,3] to [-1, 1]
-    values = unpack_bits(quantized, 2)
-    # Map [0, 3] to [-1, 1]
+    # 2-bit: native u2 type, map [0,3] to [-1, 1]
+    values = Nx.as_type(quantized, :f32)
     Nx.subtract(Nx.divide(values, 1.5), 1.0)
   end
 
-  defp dequantize_residuals(quantized, bits) when bits in [4, 8] do
-    values =
-      if bits == 4 do
-        unpack_bits(quantized, 4)
-      else
-        Nx.as_type(quantized, :f32)
-      end
-
-    levels = :math.pow(2, bits) - 1
-    # Map [0, levels] to [-1, 1]
-    Nx.subtract(Nx.divide(values, levels / 2), 1)
+  defp dequantize_residuals(quantized, 4) do
+    # 4-bit: native u4 type, map [0,15] to [-1, 1]
+    values = Nx.as_type(quantized, :f32)
+    Nx.subtract(Nx.divide(values, 7.5), 1)
   end
 
-  # Pack values into bytes
-  # 1-bit: 8 values per byte
-  # 2-bit: 4 values per byte
-  # 4-bit: 2 values per byte
+  defp dequantize_residuals(quantized, 8) do
+    values = Nx.as_type(quantized, :f32)
+    # Map [0, 255] to [-1, 1]
+    Nx.subtract(Nx.divide(values, 127.5), 1)
+  end
+
+  # Pack 1-bit values into bytes (8 values per byte)
+  # 2-bit and 4-bit use native Nx sub-byte types instead
   defp pack_bits(values, 1) do
     {n, dim} = Nx.shape(values)
     # Ensure dim is multiple of 8
@@ -311,51 +306,7 @@ defmodule Stephen.Compression do
     Nx.as_type(packed, :u8)
   end
 
-  defp pack_bits(values, 2) do
-    {n, dim} = Nx.shape(values)
-    # Ensure dim is multiple of 4
-    padded_dim = ceil(dim / 4) * 4
-    padding = padded_dim - dim
-
-    padded =
-      if padding > 0 do
-        Nx.pad(values, 0, [{0, 0, 0}, {0, padding, 0}])
-      else
-        values
-      end
-
-    # Reshape to {n, dim/4, 4} and pack
-    reshaped = Nx.reshape(padded, {n, div(padded_dim, 4), 4})
-
-    # Pack 4 2-bit values per byte: multiply by powers of 4 and sum
-    weights = Nx.tensor([64, 16, 4, 1], type: :u8)
-    packed = Nx.sum(Nx.multiply(reshaped, weights), axes: [2])
-    Nx.as_type(packed, :u8)
-  end
-
-  defp pack_bits(values, 4) do
-    {n, dim} = Nx.shape(values)
-    # Ensure dim is multiple of 2
-    padded_dim = ceil(dim / 2) * 2
-    padding = padded_dim - dim
-
-    padded =
-      if padding > 0 do
-        Nx.pad(values, 0, [{0, 0, 0}, {0, padding, 0}])
-      else
-        values
-      end
-
-    # Reshape to {n, dim/2, 2} and pack
-    reshaped = Nx.reshape(padded, {n, div(padded_dim, 2), 2})
-
-    # Pack 2 4-bit values per byte
-    weights = Nx.tensor([16, 1], type: :u8)
-    packed = Nx.sum(Nx.multiply(reshaped, weights), axes: [2])
-    Nx.as_type(packed, :u8)
-  end
-
-  # Unpack bytes to values
+  # Unpack 1-bit packed bytes back to individual values
   defp unpack_bits(packed, 1) do
     {n, packed_dim} = Nx.shape(packed)
     dim = packed_dim * 8
@@ -368,35 +319,6 @@ defmodule Stephen.Compression do
     masked = Nx.bitwise_and(expanded, weights)
     bits = Nx.greater(masked, 0) |> Nx.as_type(:f32)
     Nx.reshape(bits, {n, dim})
-  end
-
-  defp unpack_bits(packed, 2) do
-    {n, packed_dim} = Nx.shape(packed)
-    dim = packed_dim * 4
-
-    # Expand each byte to 4 2-bit values
-    expanded = Nx.reshape(packed, {n, packed_dim, 1})
-
-    # Extract each 2-bit value using shifts and masks
-    # Value 0: bits 6-7, Value 1: bits 4-5, Value 2: bits 2-3, Value 3: bits 0-1
-    shifts = Nx.tensor([[6, 4, 2, 0]], type: :u8)
-    shifted = Nx.right_shift(expanded, shifts)
-    values = Nx.bitwise_and(shifted, 3) |> Nx.as_type(:f32)
-    Nx.reshape(values, {n, dim})
-  end
-
-  defp unpack_bits(packed, 4) do
-    {n, packed_dim} = Nx.shape(packed)
-    dim = packed_dim * 2
-
-    # Expand each byte to 2 4-bit values
-    expanded = Nx.reshape(packed, {n, packed_dim, 1})
-
-    # Extract each 4-bit value
-    shifts = Nx.tensor([[4, 0]], type: :u8)
-    shifted = Nx.right_shift(expanded, shifts)
-    values = Nx.bitwise_and(shifted, 15) |> Nx.as_type(:f32)
-    Nx.reshape(values, {n, dim})
   end
 
   @doc """
