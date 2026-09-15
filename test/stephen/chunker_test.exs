@@ -50,6 +50,7 @@ defmodule Stephen.ChunkerTest do
       chunks = Chunker.chunk_text(text, chunk_size: 50)
 
       assert length(chunks) > 1
+      assert chunks == Chunker.chunk_text(text, chunk_size: 50, chunk_overlap: 10)
     end
 
     test "respects chunk_size parameter" do

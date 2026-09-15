@@ -47,7 +47,7 @@ defmodule Stephen.Chunker do
 
   ## Options
     * `:chunk_size` - Target chunk size in characters (default: #{@default_chunk_size})
-    * `:chunk_overlap` - Overlap between chunks in characters (default: #{@default_chunk_overlap})
+    * `:chunk_overlap` - Overlap between chunks in characters (default: #{@default_chunk_overlap}, or a fifth of `:chunk_size` when that is smaller)
     * `:format` - Text format for separator selection (`:plaintext` or `:markdown`, default: `:plaintext`)
 
   ## Returns

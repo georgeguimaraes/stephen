@@ -62,7 +62,7 @@ doc_results = Stephen.Chunker.merge_results(chunk_results, mapping,
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `:chunk_size` | 500 | Target chunk size in characters |
-| `:chunk_overlap` | 100 | Overlap between chunks in characters |
+| `:chunk_overlap` | 100, or a fifth of `:chunk_size` when that is smaller | Overlap between chunks in characters |
 | `:format` | `:plaintext` | Text format (`:plaintext` or `:markdown`) |
 
 ## Choosing Parameters
