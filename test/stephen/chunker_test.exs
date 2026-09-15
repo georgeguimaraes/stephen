@@ -44,6 +44,14 @@ defmodule Stephen.ChunkerTest do
       assert chunks != []
     end
 
+    test "shrinks the default overlap for chunk sizes below the default overlap" do
+      text = String.duplicate("This is a test sentence. ", 20)
+
+      chunks = Chunker.chunk_text(text, chunk_size: 50)
+
+      assert length(chunks) > 1
+    end
+
     test "respects chunk_size parameter" do
       # Create a long text
       text = String.duplicate("This is a test sentence. ", 50)

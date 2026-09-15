@@ -28,10 +28,10 @@ defmodule Stephen.MixProject do
   defp deps do
     [
       {:bumblebee, "~> 0.6"},
-      {:nx, "~> 0.9"},
+      {:nx, "~> 0.9 or ~> 1.0"},
       {:axon, "~> 0.7"},
       {:scholar, "~> 0.4"},
-      {:exla, "~> 0.9", optional: true},
+      {:exla, "~> 0.9 or ~> 1.0", optional: true},
       {:hnswlib, "~> 0.1"},
       {:text_chunker, "~> 0.3"},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},

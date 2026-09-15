@@ -89,7 +89,7 @@ defmodule Stephen.Chunker do
   @spec chunk_text(String.t(), keyword()) :: [String.t()]
   def chunk_text(text, opts \\ []) do
     chunk_size = Keyword.get(opts, :chunk_size, @default_chunk_size)
-    chunk_overlap = Keyword.get(opts, :chunk_overlap, @default_chunk_overlap)
+    chunk_overlap = Keyword.get_lazy(opts, :chunk_overlap, fn -> default_overlap(chunk_size) end)
     format = Keyword.get(opts, :format, :plaintext)
 
     text
@@ -208,6 +208,12 @@ defmodule Stephen.Chunker do
       chunk_id = generate_chunk_id(doc_id, idx)
       {chunk_id, chunk_text}
     end)
+  end
+
+  # text_chunker rejects an overlap larger than the chunk size, so the default
+  # overlap shrinks with small chunk sizes instead of staying fixed at 100.
+  defp default_overlap(chunk_size) do
+    min(@default_chunk_overlap, div(chunk_size, 5))
   end
 
   defp generate_chunk_id(doc_id, chunk_index) do
