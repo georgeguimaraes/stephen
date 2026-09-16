@@ -11,8 +11,8 @@ Stephen implements late interaction retrieval using per-token embeddings and Max
 ```elixir
 def deps do
   [
-    {:stephen, "~> 0.1.0"},
-    {:exla, "~> 0.9"}  # optional, for GPU acceleration
+    {:stephen, "~> 1.0"},
+    {:exla, "~> 1.0"}  # optional, for GPU acceleration
   ]
 end
 ```
