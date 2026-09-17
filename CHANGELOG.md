@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.0.2](https://github.com/georgeguimaraes/stephen/compare/v1.0.1...v1.0.2) (2026-09-17)
+
+
+### Miscellaneous
+
+* Pin Dependabot commit prefix to chore(deps) ([d807dac](https://github.com/georgeguimaraes/stephen/commit/d807dac5392e36875802fd28f91014a47808e89f))
+
+
+### Documentation
+
+* Point the install snippet at the current release ([b56280f](https://github.com/georgeguimaraes/stephen/commit/b56280f24b753e95a7bd56fe1884ac47413b1c4e))
+
 ## [1.0.1](https://github.com/georgeguimaraes/stephen/compare/v1.0.0...v1.0.1) (2026-09-15)
 
 
