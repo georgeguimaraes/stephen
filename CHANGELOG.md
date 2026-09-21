@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.0.2](https://github.com/georgeguimaraes/stephen/compare/v1.0.1...v1.0.2) (2026-09-21)
+
+
+### Miscellaneous
+
+* **deps:** bump hnswlib from 0.1.7 to 0.1.10 ([#27](https://github.com/georgeguimaraes/stephen/issues/27)) ([43a5271](https://github.com/georgeguimaraes/stephen/commit/43a5271d733d5582b30cbdb9c7c3419093c8216d))
+* Pin Dependabot commit prefix to chore(deps) ([d807dac](https://github.com/georgeguimaraes/stephen/commit/d807dac5392e36875802fd28f91014a47808e89f))
+
+
+### Documentation
+
+* Point the install snippet at the current release ([b56280f](https://github.com/georgeguimaraes/stephen/commit/b56280f24b753e95a7bd56fe1884ac47413b1c4e))
+
 ## [1.0.1](https://github.com/georgeguimaraes/stephen/compare/v1.0.0...v1.0.1) (2026-09-15)
 
 
