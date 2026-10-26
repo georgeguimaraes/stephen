@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.0.2](https://github.com/georgeguimaraes/stephen/compare/v1.0.1...v1.0.2) (2026-10-26)
+
+
+### Miscellaneous
+
+* **ci:** Pin georgeguimaraes/workflows to v1.0.1 ([2f3ca7c](https://github.com/georgeguimaraes/stephen/commit/2f3ca7c004d3f1cfd05bdcbe733562a4c333972c))
+* **ci:** Pin GitHub Actions to commit SHAs ([008e496](https://github.com/georgeguimaraes/stephen/commit/008e4963535d7d7b099130e6c3f64f1f4c938067))
+* **deps:** bump hnswlib from 0.1.7 to 0.1.10 ([#27](https://github.com/georgeguimaraes/stephen/issues/27)) ([43a5271](https://github.com/georgeguimaraes/stephen/commit/43a5271d733d5582b30cbdb9c7c3419093c8216d))
+* **deps:** bump text_chunker from 0.7.0 to 1.0.1 ([#28](https://github.com/georgeguimaraes/stephen/issues/28)) ([96651f7](https://github.com/georgeguimaraes/stephen/commit/96651f76b2b85995f5556411c29df367423ea5e0))
+* **deps:** drop the orphaned progress_bar and decimal lock entries ([e5898e9](https://github.com/georgeguimaraes/stephen/commit/e5898e95c1b04d58180afc9de19e5b0f49415b3a))
+* Pin Dependabot commit prefix to chore(deps) ([d807dac](https://github.com/georgeguimaraes/stephen/commit/d807dac5392e36875802fd28f91014a47808e89f))
+
+
+### Documentation
+
+* Point the install snippet at the current release ([b56280f](https://github.com/georgeguimaraes/stephen/commit/b56280f24b753e95a7bd56fe1884ac47413b1c4e))
+
 ## [1.0.1](https://github.com/georgeguimaraes/stephen/compare/v1.0.0...v1.0.1) (2026-09-15)
 
 
