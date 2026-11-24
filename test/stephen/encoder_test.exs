@@ -1,7 +1,13 @@
 defmodule Stephen.EncoderTest do
   use ExUnit.Case
 
+  import ExUnit.CaptureLog
+
   alias Stephen.Encoder
+
+  # ColBERT models ignore :projection_dim and use their trained projection, so the
+  # projection options are tested on a plain sentence-transformers model.
+  @standard_model "sentence-transformers/all-MiniLM-L6-v2"
 
   @moduletag :integration
   @moduletag timeout: :infinity
@@ -11,7 +17,7 @@ defmodule Stephen.EncoderTest do
     test "loads encoder with default settings" do
       {:ok, encoder} = Encoder.load()
 
-      assert encoder.embedding_dim == 384
+      assert encoder.embedding_dim == 768
       assert encoder.output_dim == 128
       assert encoder.max_query_length == 32
       assert encoder.max_doc_length == 180
@@ -20,7 +26,7 @@ defmodule Stephen.EncoderTest do
 
     @tag :slow
     test "loads encoder without projection" do
-      {:ok, encoder} = Encoder.load(projection_dim: nil)
+      {:ok, encoder} = Encoder.load(model: @standard_model, projection_dim: nil)
 
       assert encoder.embedding_dim == 384
       assert encoder.output_dim == 384
@@ -31,6 +37,7 @@ defmodule Stephen.EncoderTest do
     test "loads encoder with custom settings" do
       {:ok, encoder} =
         Encoder.load(
+          model: @standard_model,
           max_query_length: 64,
           max_doc_length: 256,
           projection_dim: 64
@@ -118,7 +125,7 @@ defmodule Stephen.EncoderTest do
   describe "embedding_dim/1 and hidden_dim/1" do
     @tag :slow
     test "returns correct dimensions" do
-      {:ok, encoder} = Encoder.load(projection_dim: 64)
+      {:ok, encoder} = Encoder.load(model: @standard_model, projection_dim: 64)
 
       assert Encoder.embedding_dim(encoder) == 64
       assert Encoder.hidden_dim(encoder) == 384
@@ -173,12 +180,18 @@ defmodule Stephen.EncoderTest do
 
     @tag :slow
     test "accepts base_module override" do
-      # Even though colbertv2.0 is BERT-based, we can force a different module
-      # This will fail to load params but proves the override works
-      result = Encoder.load(model: "colbert-ir/colbertv2.0", base_module: Bumblebee.Text.Roberta)
+      # colbertv2.0 is BERT-based. Forcing RoBERTa builds a different architecture,
+      # so Bumblebee reports parameters that the BERT weights do not fill.
+      log =
+        capture_log([level: :debug], fn ->
+          assert {:ok, _encoder} =
+                   Encoder.load(
+                     model: "colbert-ir/colbertv2.0",
+                     base_module: Bumblebee.Text.Roberta
+                   )
+        end)
 
-      # Should fail because RoBERTa architecture doesn't match BERT weights
-      assert {:error, _} = result
+      assert log =~ "the following parameters were missing"
     end
   end
 end
