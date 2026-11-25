@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.0.0](https://github.com/georgeguimaraes/stephen/compare/v1.0.2...v2.0.0) (2026-11-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* document embeddings no longer include punctuation tokens by default. Rebuild indexes, or pass skip_punctuation?: false to keep the 1.x behavior for punctuation.
+* query and document embeddings change. Rebuild every index that Stephen 1.0.x built.
+
+### Bug Fixes
+
+* Encode queries and documents like reference ColBERT ([2eeb668](https://github.com/georgeguimaraes/stephen/commit/2eeb66845b6524eb1ed26ee7a35d6ce08db1b304))
+* Skip punctuation in document embeddings by default ([7b148c5](https://github.com/georgeguimaraes/stephen/commit/7b148c5206260988f01d949b947417b6b4d4720a))
+
+
+### Tests
+
+* Update the stale encoder expectations ([7b2adb2](https://github.com/georgeguimaraes/stephen/commit/7b2adb2ddc68ba30ad6e6251833d4a9e6a29ed30))
+
 ## [1.0.2](https://github.com/georgeguimaraes/stephen/compare/v1.0.1...v1.0.2) (2026-11-24)
 
 
