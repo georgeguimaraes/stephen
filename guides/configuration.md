@@ -44,14 +44,14 @@ For other models, Stephen initializes a random projection matrix.
 
 ```elixir
 embeddings = Stephen.Encoder.encode_document(encoder, text,
-  skip_punctuation?: true,
+  skip_punctuation?: false,
   deduplicate?: true
 )
 ```
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `:skip_punctuation?` | false | Filter punctuation token embeddings |
+| `:skip_punctuation?` | true | Drop punctuation token embeddings, as reference ColBERT does. Queries always keep them. |
 | `:deduplicate?` | false | Remove near-duplicate embeddings |
 
 ## Index Options

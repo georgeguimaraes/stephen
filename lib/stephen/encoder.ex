@@ -43,6 +43,9 @@ defmodule Stephen.Encoder do
   @query_marker "[unused0]"
   @doc_marker "[unused1]"
 
+  # Reference ColBERT drops punctuation from documents (mask_punctuation: true), not from queries
+  @skip_punctuation_default true
+
   # Known ColBERT models with trained projection weights
   @colbert_models [
     "colbert-ir/colbertv2.0",
@@ -323,7 +326,8 @@ defmodule Stephen.Encoder do
   Returns normalized embeddings with shape {sequence_length, output_dim}.
 
   ## Options
-    * `:skip_punctuation?` - Whether to filter out punctuation token embeddings (default: false)
+    * `:skip_punctuation?` - Whether to drop punctuation token embeddings, as reference
+      ColBERT does (default: true)
     * `:deduplicate?` - Whether to remove duplicate token embeddings (default: false)
   """
   @spec encode_document(encoder(), String.t(), keyword()) :: embeddings()
@@ -339,12 +343,13 @@ defmodule Stephen.Encoder do
   Returns a list of normalized embeddings, one per document.
 
   ## Options
-    * `:skip_punctuation?` - Whether to filter out punctuation token embeddings (default: false)
+    * `:skip_punctuation?` - Whether to drop punctuation token embeddings, as reference
+      ColBERT does (default: true)
     * `:deduplicate?` - Whether to remove duplicate token embeddings (default: false)
   """
   @spec encode_documents(encoder(), [String.t()], keyword()) :: [embeddings()]
   def encode_documents(encoder, texts, opts \\ []) do
-    skip_punct? = Keyword.get(opts, :skip_punctuation?, false)
+    skip_punct? = Keyword.get(opts, :skip_punctuation?, @skip_punctuation_default)
     dedup? = Keyword.get(opts, :deduplicate?, false)
 
     encoder
@@ -388,6 +393,8 @@ defmodule Stephen.Encoder do
   ## Options
     * `:type` - `:query` or `:document` (default: `:document`)
     * `:max_length` - Maximum tokens (defaults based on type)
+    * `:skip_punctuation?` - For documents, whether to drop punctuation tokens, as
+      `encode_document/3` does (default: true)
 
   ## Examples
 
@@ -399,14 +406,15 @@ defmodule Stephen.Encoder do
   """
   @spec tokenize(encoder(), String.t(), keyword()) :: [String.t()]
   def tokenize(encoder, text, opts \\ []) do
-    {max_length, marker_id, keep} =
+    {max_length, marker_id, keep, skip_punct?} =
       case Keyword.get(opts, :type, :document) do
         :query ->
           {Keyword.get(opts, :max_length, encoder.max_query_length), encoder.query_marker_id,
-           :all}
+           :all, false}
 
         :document ->
-          {Keyword.get(opts, :max_length, encoder.max_doc_length), encoder.doc_marker_id, :real}
+          {Keyword.get(opts, :max_length, encoder.max_doc_length), encoder.doc_marker_id, :real,
+           Keyword.get(opts, :skip_punctuation?, @skip_punctuation_default)}
       end
 
     inputs = model_inputs(encoder, [text], max_length, marker_id, keep)
@@ -415,6 +423,7 @@ defmodule Stephen.Encoder do
     inputs["input_ids"][0]
     |> Nx.slice([0], [length])
     |> Nx.to_flat_list()
+    |> Enum.reject(&(skip_punct? and MapSet.member?(encoder.skiplist, &1)))
     |> ids_to_tokens(encoder.tokenizer.native_tokenizer)
   end
 

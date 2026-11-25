@@ -28,6 +28,8 @@ config :nx, default_backend: EXLA.Backend
 
 Stephen 2.0 encodes queries and documents like reference ColBERT. The query and document embeddings are different from 1.x, so rebuild every index that 1.x built. An index saved with 1.x does not give correct scores with 2.0 queries.
 
+Document encoding now drops punctuation tokens by default, as reference ColBERT does. To keep them, pass `skip_punctuation?: false` to `Stephen.Encoder.encode_document/3` and `Stephen.Encoder.encode_documents/3`.
+
 ## Quick Start
 
 ```elixir

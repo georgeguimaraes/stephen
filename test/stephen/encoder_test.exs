@@ -49,6 +49,28 @@ defmodule Stephen.EncoderTest do
     end
   end
 
+  describe "punctuation in documents" do
+    @tag :slow
+    test "drops punctuation by default and keeps it with skip_punctuation?: false" do
+      {:ok, encoder} = Encoder.load()
+      text = "Conan, Seth and Stephen!"
+
+      assert Encoder.tokenize(encoder, text) ==
+               ["[CLS]", "[unused1]", "conan", "seth", "and", "stephen", "[SEP]"]
+
+      assert Encoder.tokenize(encoder, text, skip_punctuation?: false) ==
+               ["[CLS]", "[unused1]", "conan", ",", "seth", "and", "stephen", "!", "[SEP]"]
+
+      {default_length, _dim} = Nx.shape(Encoder.encode_document(encoder, text))
+
+      {kept_length, _dim} =
+        Nx.shape(Encoder.encode_document(encoder, text, skip_punctuation?: false))
+
+      assert default_length == 7
+      assert kept_length == 9
+    end
+  end
+
   describe "tokenize/3" do
     @tag :slow
     test "puts the ColBERT markers after [CLS] and pads queries with [MASK]" do
