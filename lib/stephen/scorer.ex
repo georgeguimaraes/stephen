@@ -226,7 +226,7 @@ defmodule Stephen.Scorer do
     skip_special = Keyword.get(opts, :skip_special, true)
     min_sim = Keyword.get(opts, :min_similarity, 0.0)
 
-    special_tokens = MapSet.new(["[CLS]", "[SEP]", "[PAD]", "[MASK]", "[Q]", "[D]"])
+    special_tokens = MapSet.new(["[CLS]", "[SEP]", "[PAD]", "[MASK]", "[unused0]", "[unused1]"])
 
     matches =
       explanation.matches

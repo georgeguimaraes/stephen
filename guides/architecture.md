@@ -86,23 +86,23 @@ results = Stephen.rerank(encoder, index, query, candidates)
 
 ## Query Augmentation
 
-ColBERT pads queries with [MASK] tokens to a fixed length (default 32). The model learns to use these positions for query expansion, matching additional relevant terms.
+ColBERT pads queries with [MASK] tokens to a fixed length (default 32). The model encodes the [MASK] tokens together with the query, so each one gets a query-specific embedding. These embeddings match additional relevant terms (query expansion). The real query tokens do not attend to the [MASK] tokens.
 
 ```elixir
 # Input: "late night host"
-# Internal: "[Q] late night host [MASK] [MASK] ... [MASK]"
-#           ↑                    ↑─────────────────────────↑
-#           Query marker         Padding to 32 tokens
+# Tokens: [CLS] [unused0] late night host [SEP] [MASK] ... [MASK]
+#               ↑                               ↑──────────────↑
+#               Query marker                    Padding to 32 tokens
 ```
 
-## Document Markers
+## Query and Document Markers
 
-Both queries and documents are prefixed with markers:
+As in reference ColBERT, a marker token comes directly after [CLS]:
 
-- Queries: `[Q]` prefix
-- Documents: `[D]` prefix
+- Queries: `[unused0]`
+- Documents: `[unused1]`
 
-These help the model distinguish query vs document context during encoding.
+These help the model distinguish query vs document context during encoding. A vocabulary without these tokens uses its unknown token as the marker.
 
 ## Pseudo-Relevance Feedback (PRF)
 

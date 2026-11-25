@@ -7,7 +7,8 @@ defmodule Stephen.Encoder do
 
   ## Features
 
-  - Query padding with [MASK] tokens for query augmentation
+  - Query and document markers, as in reference ColBERT
+  - Query augmentation: padding becomes [MASK] tokens that the model encodes in context
   - Configurable max lengths for queries and documents
   - Batch encoding for efficient processing
   - Optional linear projection to reduce embedding dimension
@@ -27,6 +28,8 @@ defmodule Stephen.Encoder do
           max_doc_length: pos_integer(),
           projection: Nx.Tensor.t() | nil,
           mask_token_id: non_neg_integer(),
+          query_marker_id: non_neg_integer(),
+          doc_marker_id: non_neg_integer(),
           skiplist: MapSet.t()
         }
 
@@ -36,8 +39,9 @@ defmodule Stephen.Encoder do
   @default_max_query_length 32
   @default_max_doc_length 180
   @default_projection_dim 128
-  @query_marker "[Q]"
-  @doc_marker "[D]"
+  # Reference ColBERT puts these vocabulary tokens after [CLS] to mark queries and documents
+  @query_marker "[unused0]"
+  @doc_marker "[unused1]"
 
   # Known ColBERT models with trained projection weights
   @colbert_models [
@@ -97,7 +101,8 @@ defmodule Stephen.Encoder do
     * `:model` - HuggingFace model name (default: #{@default_model})
     * `:max_query_length` - Maximum query length in tokens (default: #{@default_max_query_length})
     * `:max_doc_length` - Maximum document length in tokens (default: #{@default_max_doc_length})
-    * `:projection_dim` - Output dimension after projection (default: #{@default_projection_dim}, nil to disable)
+    * `:projection_dim` - Output dimension after projection (default: #{@default_projection_dim}, nil to disable).
+      ColBERT models ignore it and use their trained projection.
     * `:base_module` - Override the Bumblebee module for ColBERT models (auto-detected from config.json)
 
   ## ColBERT Models
@@ -151,8 +156,7 @@ defmodule Stephen.Encoder do
          {:ok, tokenizer} <- Bumblebee.load_tokenizer({:hf, model_name}) do
       embedding_dim = spec.hidden_size
 
-      # Get the mask token ID from tokenizer
-      mask_token_id = get_mask_token_id(tokenizer)
+      mask_token_id = Bumblebee.Tokenizer.special_token_id(tokenizer, :mask)
 
       # Build skiplist of punctuation token IDs
       skiplist = build_skiplist(tokenizer)
@@ -187,6 +191,8 @@ defmodule Stephen.Encoder do
          max_doc_length: max_doc_length,
          projection: projection,
          mask_token_id: mask_token_id,
+         query_marker_id: marker_id(tokenizer, @query_marker),
+         doc_marker_id: marker_id(tokenizer, @doc_marker),
          skiplist: skiplist
        }}
     end
@@ -208,8 +214,7 @@ defmodule Stephen.Encoder do
       embedding_dim = spec.hidden_size
       output_dim = Nx.axis_size(projection, 1)
 
-      # Get the mask token ID from tokenizer
-      mask_token_id = get_mask_token_id(tokenizer)
+      mask_token_id = Bumblebee.Tokenizer.special_token_id(tokenizer, :mask)
 
       # Build skiplist of punctuation token IDs
       skiplist = build_skiplist(tokenizer)
@@ -225,6 +230,8 @@ defmodule Stephen.Encoder do
          max_doc_length: max_doc_length,
          projection: projection,
          mask_token_id: mask_token_id,
+         query_marker_id: marker_id(tokenizer, @query_marker),
+         doc_marker_id: marker_id(tokenizer, @doc_marker),
          skiplist: skiplist
        }}
     end
@@ -279,49 +286,40 @@ defmodule Stephen.Encoder do
   @doc """
   Encodes a query into per-token embeddings.
 
-  Prepends the query marker [Q] and pads with [MASK] tokens to max_query_length.
+  Follows reference ColBERT: the query marker goes after [CLS], and the padding up to
+  `max_query_length` becomes [MASK] tokens. The model encodes the [MASK] tokens with
+  the query, so they add query-specific embeddings (query augmentation).
   Returns normalized embeddings with shape {max_query_length, output_dim}.
 
   ## Options
-    * `:pad` - Whether to pad with [MASK] tokens (default: true)
+    * `:pad` - Whether to add the [MASK] embeddings (default: true). Without them,
+      only the real query tokens are returned.
   """
   @spec encode_query(encoder(), String.t(), keyword()) :: embeddings()
   def encode_query(encoder, text, opts \\ []) do
-    pad = Keyword.get(opts, :pad, true)
-    marked_text = @query_marker <> " " <> text
-
-    embeddings = encode_single(encoder, marked_text, encoder.max_query_length)
-
-    if pad do
-      pad_with_mask_embeddings(encoder, embeddings, encoder.max_query_length)
-    else
-      embeddings
-    end
+    [embeddings] = encode_queries(encoder, [text], opts)
+    embeddings
   end
 
   @doc """
   Encodes multiple queries in batch.
 
-  Returns a list of normalized embeddings, one per query.
+  Returns a list of normalized embeddings, one per query. Takes the same options as
+  `encode_query/3`.
   """
   @spec encode_queries(encoder(), [String.t()], keyword()) :: [embeddings()]
   def encode_queries(encoder, texts, opts \\ []) do
-    pad = Keyword.get(opts, :pad, true)
-    marked_texts = Enum.map(texts, &(@query_marker <> " " <> &1))
+    keep = if Keyword.get(opts, :pad, true), do: :all, else: :real
 
-    embeddings_list = encode_batch(encoder, marked_texts, encoder.max_query_length)
-
-    if pad do
-      Enum.map(embeddings_list, &pad_with_mask_embeddings(encoder, &1, encoder.max_query_length))
-    else
-      embeddings_list
-    end
+    encoder
+    |> encode_texts(texts, encoder.max_query_length, encoder.query_marker_id, keep)
+    |> Enum.map(fn {embeddings, _token_ids} -> embeddings end)
   end
 
   @doc """
   Encodes a document into per-token embeddings.
 
-  Prepends the document marker [D] before encoding.
+  Puts the document marker after [CLS], as reference ColBERT does.
   Returns normalized embeddings with shape {sequence_length, output_dim}.
 
   ## Options
@@ -330,16 +328,8 @@ defmodule Stephen.Encoder do
   """
   @spec encode_document(encoder(), String.t(), keyword()) :: embeddings()
   def encode_document(encoder, text, opts \\ []) do
-    skip_punct? = Keyword.get(opts, :skip_punctuation?, false)
-    dedup? = Keyword.get(opts, :deduplicate?, false)
-    marked_text = @doc_marker <> " " <> text
-
-    {embeddings, token_ids} =
-      encode_single_with_ids(encoder, marked_text, encoder.max_doc_length)
-
+    [embeddings] = encode_documents(encoder, [text], opts)
     embeddings
-    |> maybe_filter_punctuation(token_ids, encoder.skiplist, skip_punct?)
-    |> maybe_deduplicate(dedup?)
   end
 
   @doc """
@@ -356,9 +346,9 @@ defmodule Stephen.Encoder do
   def encode_documents(encoder, texts, opts \\ []) do
     skip_punct? = Keyword.get(opts, :skip_punctuation?, false)
     dedup? = Keyword.get(opts, :deduplicate?, false)
-    marked_texts = Enum.map(texts, &(@doc_marker <> " " <> &1))
 
-    encode_batch_with_ids(encoder, marked_texts, encoder.max_doc_length)
+    encoder
+    |> encode_texts(texts, encoder.max_doc_length, encoder.doc_marker_id, :real)
     |> Enum.map(fn {embeddings, token_ids} ->
       embeddings
       |> maybe_filter_punctuation(token_ids, encoder.skiplist, skip_punct?)
@@ -373,7 +363,8 @@ defmodule Stephen.Encoder do
   """
   @spec encode(encoder(), String.t()) :: embeddings()
   def encode(encoder, text) do
-    encode_single(encoder, text, encoder.max_doc_length)
+    [{embeddings, _token_ids}] = encode_texts(encoder, [text], encoder.max_doc_length, nil, :real)
+    embeddings
   end
 
   @doc """
@@ -401,53 +392,30 @@ defmodule Stephen.Encoder do
   ## Examples
 
       tokens = Stephen.Encoder.tokenize(encoder, "Stephen Colbert")
-      # => ["[CLS]", "[D]", "stephen", "colbert", "[SEP]"]
+      # => ["[CLS]", "[unused1]", "stephen", "colbert", "[SEP]"]
 
       tokens = Stephen.Encoder.tokenize(encoder, "Conan", type: :query)
-      # => ["[CLS]", "[Q]", "conan", "[MASK]", ..., "[SEP]"]
+      # => ["[CLS]", "[unused0]", "conan", "[SEP]", "[MASK]", ..., "[MASK]"]
   """
   @spec tokenize(encoder(), String.t(), keyword()) :: [String.t()]
   def tokenize(encoder, text, opts \\ []) do
-    type = Keyword.get(opts, :type, :document)
-    max_length = tokenize_max_length(encoder, type, opts)
-    marked_text = tokenize_mark_text(text, type)
+    {max_length, marker_id, keep} =
+      case Keyword.get(opts, :type, :document) do
+        :query ->
+          {Keyword.get(opts, :max_length, encoder.max_query_length), encoder.query_marker_id,
+           :all}
 
-    configured_tokenizer =
-      Bumblebee.configure(encoder.tokenizer, length: max_length, pad_direction: :right)
+        :document ->
+          {Keyword.get(opts, :max_length, encoder.max_doc_length), encoder.doc_marker_id, :real}
+      end
 
-    inputs = Bumblebee.apply_tokenizer(configured_tokenizer, marked_text)
-    real_ids = extract_real_token_ids(inputs)
+    inputs = model_inputs(encoder, [text], max_length, marker_id, keep)
+    [length] = kept_lengths(inputs, keep)
 
-    ids_to_tokens(real_ids, encoder.tokenizer.native_tokenizer)
-  end
-
-  defp tokenize_max_length(encoder, type, opts) do
-    case type do
-      :query -> Keyword.get(opts, :max_length, encoder.max_query_length)
-      :document -> Keyword.get(opts, :max_length, encoder.max_doc_length)
-    end
-  end
-
-  defp tokenize_mark_text(text, type) do
-    case type do
-      :query -> @query_marker <> " " <> text
-      :document -> @doc_marker <> " " <> text
-    end
-  end
-
-  defp extract_real_token_ids(inputs) do
-    mask = flatten_tensor(inputs["attention_mask"])
-    ids = flatten_tensor(inputs["input_ids"])
-
-    num_real_tokens = Nx.sum(mask) |> Nx.to_number() |> trunc()
-    Nx.slice(ids, [0], [num_real_tokens]) |> Nx.to_flat_list()
-  end
-
-  defp flatten_tensor(tensor) do
-    case Nx.shape(tensor) do
-      {1, len} -> Nx.reshape(tensor, {len})
-      _ -> tensor
-    end
+    inputs["input_ids"][0]
+    |> Nx.slice([0], [length])
+    |> Nx.to_flat_list()
+    |> ids_to_tokens(encoder.tokenizer.native_tokenizer)
   end
 
   defp ids_to_tokens(ids, native_tokenizer) do
@@ -459,182 +427,62 @@ defmodule Stephen.Encoder do
     end)
   end
 
-  # Encode a single text
-  defp encode_single(encoder, text, max_length) do
-    %{model: model, params: params, tokenizer: tokenizer, projection: projection} = encoder
+  # Runs the model on a batch and returns {embeddings, token_ids} per text.
+  # keep: :real drops the padding, :all keeps every position (the [MASK] padding of a query).
+  defp encode_texts(encoder, texts, max_length, marker_id, keep) do
+    %{model: model, params: params, projection: projection} = encoder
 
-    # Configure tokenizer with max length
-    configured_tokenizer =
-      Bumblebee.configure(tokenizer, length: max_length, pad_direction: :right)
-
-    inputs = Bumblebee.apply_tokenizer(configured_tokenizer, text)
-
+    inputs = model_inputs(encoder, texts, max_length, marker_id, keep)
     %{hidden_state: hidden_state} = Axon.predict(model, params, inputs)
-
-    # Get attention mask to identify real tokens vs padding
-    attention_mask = inputs["attention_mask"]
-
-    # Get the sequence embeddings (remove batch dimension if present)
-    embeddings =
-      case Nx.shape(hidden_state) do
-        {1, seq_len, dim} -> Nx.reshape(hidden_state, {seq_len, dim})
-        {_seq_len, _dim} -> hidden_state
-        _ -> hidden_state
-      end
-
-    # Apply projection if configured
-    embeddings =
-      if projection do
-        apply_projection(embeddings, projection)
-      else
-        embeddings
-      end
-
-    # L2 normalize each token embedding
-    embeddings = normalize(embeddings)
-
-    # Mask out padding tokens (keep only real tokens based on attention mask)
-    mask =
-      case Nx.shape(attention_mask) do
-        {1, len} -> Nx.reshape(attention_mask, {len})
-        _ -> attention_mask
-      end
-
-    # Get indices of real tokens (where mask == 1)
-    num_real_tokens = Nx.sum(mask) |> Nx.to_number() |> trunc()
-
-    # Return only the real token embeddings
-    Nx.slice(embeddings, [0, 0], [num_real_tokens, encoder.output_dim])
-  end
-
-  # Encode multiple texts in batch
-  defp encode_batch(encoder, texts, max_length) do
-    %{model: model, params: params, tokenizer: tokenizer, projection: projection} = encoder
-
-    # Configure tokenizer with max length
-    configured_tokenizer =
-      Bumblebee.configure(tokenizer, length: max_length, pad_direction: :right)
-
-    inputs = Bumblebee.apply_tokenizer(configured_tokenizer, texts)
-
-    %{hidden_state: hidden_state} = Axon.predict(model, params, inputs)
-
-    # hidden_state shape: {batch_size, seq_len, hidden_dim}
-    attention_mask = inputs["attention_mask"]
-
-    # Apply projection if configured
-    hidden_state =
-      if projection do
-        apply_projection_batched(hidden_state, projection)
-      else
-        hidden_state
-      end
-
-    # Normalize all embeddings
-    hidden_state = normalize_batched(hidden_state)
-
-    # Split batch into individual sequences and remove padding
-    batch_size = Nx.axis_size(hidden_state, 0)
-
-    for i <- 0..(batch_size - 1) do
-      embeddings = hidden_state[i]
-      mask = attention_mask[i]
-
-      # Count real tokens
-      num_real_tokens = Nx.sum(mask) |> Nx.to_number() |> trunc()
-
-      # Return only real token embeddings
-      Nx.slice(embeddings, [0, 0], [num_real_tokens, encoder.output_dim])
-    end
-  end
-
-  # Encode a single text and return both embeddings and token IDs
-  defp encode_single_with_ids(encoder, text, max_length) do
-    %{model: model, params: params, tokenizer: tokenizer, projection: projection} = encoder
-
-    configured_tokenizer =
-      Bumblebee.configure(tokenizer, length: max_length, pad_direction: :right)
-
-    inputs = Bumblebee.apply_tokenizer(configured_tokenizer, text)
-
-    %{hidden_state: hidden_state} = Axon.predict(model, params, inputs)
-
-    attention_mask = inputs["attention_mask"]
-    input_ids = inputs["input_ids"]
-
-    embeddings =
-      case Nx.shape(hidden_state) do
-        {1, seq_len, dim} -> Nx.reshape(hidden_state, {seq_len, dim})
-        {_seq_len, _dim} -> hidden_state
-        _ -> hidden_state
-      end
-
-    embeddings =
-      if projection do
-        apply_projection(embeddings, projection)
-      else
-        embeddings
-      end
-
-    embeddings = normalize(embeddings)
-
-    mask =
-      case Nx.shape(attention_mask) do
-        {1, len} -> Nx.reshape(attention_mask, {len})
-        _ -> attention_mask
-      end
-
-    ids =
-      case Nx.shape(input_ids) do
-        {1, len} -> Nx.reshape(input_ids, {len})
-        _ -> input_ids
-      end
-
-    num_real_tokens = Nx.sum(mask) |> Nx.to_number() |> trunc()
-
-    real_embeddings = Nx.slice(embeddings, [0, 0], [num_real_tokens, encoder.output_dim])
-    real_ids = Nx.slice(ids, [0], [num_real_tokens]) |> Nx.to_flat_list()
-
-    {real_embeddings, real_ids}
-  end
-
-  # Encode multiple texts and return embeddings with token IDs
-  defp encode_batch_with_ids(encoder, texts, max_length) do
-    %{model: model, params: params, tokenizer: tokenizer, projection: projection} = encoder
-
-    configured_tokenizer =
-      Bumblebee.configure(tokenizer, length: max_length, pad_direction: :right)
-
-    inputs = Bumblebee.apply_tokenizer(configured_tokenizer, texts)
-
-    %{hidden_state: hidden_state} = Axon.predict(model, params, inputs)
-
-    attention_mask = inputs["attention_mask"]
-    input_ids = inputs["input_ids"]
 
     hidden_state =
-      if projection do
-        apply_projection_batched(hidden_state, projection)
-      else
-        hidden_state
-      end
+      if projection, do: apply_projection_batched(hidden_state, projection), else: hidden_state
 
     hidden_state = normalize_batched(hidden_state)
 
-    batch_size = Nx.axis_size(hidden_state, 0)
+    inputs
+    |> kept_lengths(keep)
+    |> Enum.with_index()
+    |> Enum.map(fn {length, i} ->
+      embeddings = Nx.slice(hidden_state[i], [0, 0], [length, encoder.output_dim])
+      token_ids = inputs["input_ids"][i] |> Nx.slice([0], [length]) |> Nx.to_flat_list()
+      {embeddings, token_ids}
+    end)
+  end
 
-    for i <- 0..(batch_size - 1) do
-      embeddings = hidden_state[i]
-      mask = attention_mask[i]
-      ids = input_ids[i]
+  # Tokenizes like reference ColBERT: ". " + text, then the marker replaces the "." token
+  # after [CLS]. For keep: :all, the padding becomes [MASK] tokens. The attention mask
+  # stays as the tokenizer made it, so real tokens do not attend to the [MASK] tokens.
+  defp model_inputs(encoder, texts, max_length, marker_id, keep) do
+    tokenizer = Bumblebee.configure(encoder.tokenizer, length: max_length, pad_direction: :right)
+    texts = if marker_id, do: Enum.map(texts, &(". " <> &1)), else: texts
 
-      num_real_tokens = Nx.sum(mask) |> Nx.to_number() |> trunc()
+    tokenizer
+    |> Bumblebee.apply_tokenizer(texts)
+    |> put_marker(marker_id)
+    |> augment(keep, encoder.mask_token_id)
+  end
 
-      real_embeddings = Nx.slice(embeddings, [0, 0], [num_real_tokens, encoder.output_dim])
-      real_ids = Nx.slice(ids, [0], [num_real_tokens]) |> Nx.to_flat_list()
+  defp put_marker(inputs, nil), do: inputs
 
-      {real_embeddings, real_ids}
-    end
+  defp put_marker(%{"input_ids" => ids} = inputs, marker_id) do
+    column = Nx.broadcast(Nx.tensor(marker_id, type: Nx.type(ids)), {Nx.axis_size(ids, 0), 1})
+    %{inputs | "input_ids" => Nx.put_slice(ids, [0, 1], column)}
+  end
+
+  defp augment(inputs, :real, _mask_token_id), do: inputs
+
+  defp augment(%{"input_ids" => ids, "attention_mask" => mask} = inputs, :all, mask_token_id) do
+    %{inputs | "input_ids" => Nx.select(Nx.equal(mask, 0), mask_token_id, ids)}
+  end
+
+  defp kept_lengths(%{"attention_mask" => mask}, :real) do
+    mask |> Nx.sum(axes: [1]) |> Nx.to_flat_list()
+  end
+
+  defp kept_lengths(%{"attention_mask" => mask}, :all) do
+    {batch_size, length} = Nx.shape(mask)
+    List.duplicate(length, batch_size)
   end
 
   # Filter out punctuation token embeddings
@@ -699,63 +547,10 @@ defmodule Stephen.Encoder do
     |> Enum.reverse()
   end
 
-  # Pad embeddings with [MASK] token embeddings to reach target length
-  defp pad_with_mask_embeddings(encoder, embeddings, target_length) do
-    {current_length, dim} = Nx.shape(embeddings)
-    padding_needed = target_length - current_length
-
-    if padding_needed <= 0 do
-      embeddings
-    else
-      # Create [MASK] embedding by encoding a mask token
-      # We use a cached approach - encode once and reuse
-      mask_embedding = get_mask_embedding(encoder)
-
-      # Repeat mask embedding for padding
-      padding = Nx.broadcast(mask_embedding, {padding_needed, dim})
-
-      # Concatenate original embeddings with padding
-      Nx.concatenate([embeddings, padding], axis: 0)
-    end
-  end
-
-  # Get the embedding for a [MASK] token
-  defp get_mask_embedding(encoder) do
-    %{model: model, params: params, tokenizer: tokenizer, projection: projection} = encoder
-
-    # Encode just [MASK] to get its embedding
-    inputs = Bumblebee.apply_tokenizer(tokenizer, "[MASK]")
-    %{hidden_state: hidden_state} = Axon.predict(model, params, inputs)
-
-    # Get the [MASK] token embedding (skip [CLS] at position 0, [MASK] is at position 1)
-    mask_emb =
-      case Nx.shape(hidden_state) do
-        {1, _seq_len, _dim} -> hidden_state[[0, 1, ..]]
-        _ -> hidden_state[1]
-      end
-
-    # Apply projection if configured
-    mask_emb =
-      if projection do
-        Nx.dot(mask_emb, projection)
-      else
-        mask_emb
-      end
-
-    # Normalize
-    norm = Nx.LinAlg.norm(mask_emb)
-    Nx.divide(mask_emb, Nx.add(norm, 1.0e-9))
-  end
-
-  # Get mask token ID from tokenizer
-  defp get_mask_token_id(tokenizer) do
-    native_tokenizer = get_native_tokenizer(tokenizer)
-
-    # Get the mask token ID (returns nil or integer)
-    case Tokenizers.Tokenizer.token_to_id(native_tokenizer, "[MASK]") do
-      id when is_integer(id) -> id
-      _ -> 103
-    end
+  # The vocabulary id of a marker token, or the unknown token for vocabularies without it
+  defp marker_id(tokenizer, token) do
+    Bumblebee.Tokenizer.token_to_id(tokenizer, token) ||
+      Bumblebee.Tokenizer.special_token_id(tokenizer, :unk)
   end
 
   # Build skiplist of punctuation token IDs from tokenizer
@@ -779,23 +574,12 @@ defmodule Stephen.Encoder do
     end
   end
 
-  # Apply linear projection
-  defnp apply_projection(embeddings, projection) do
-    Nx.dot(embeddings, projection)
-  end
-
   # Apply linear projection to batched embeddings
   defnp apply_projection_batched(hidden_state, projection) do
     # hidden_state: {batch, seq, hidden_dim}
     # projection: {hidden_dim, output_dim}
     # result: {batch, seq, output_dim}
     Nx.dot(hidden_state, [2], projection, [0])
-  end
-
-  # L2 normalize embeddings along the last axis
-  defnp normalize(embeddings) do
-    norm = Nx.LinAlg.norm(embeddings, axes: [-1], keep_axes: true)
-    Nx.divide(embeddings, Nx.add(norm, 1.0e-9))
   end
 
   # L2 normalize batched embeddings (3D tensor: {batch, seq, dim})

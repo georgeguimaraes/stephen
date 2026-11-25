@@ -49,6 +49,22 @@ defmodule Stephen.EncoderTest do
     end
   end
 
+  describe "tokenize/3" do
+    @tag :slow
+    test "puts the ColBERT markers after [CLS] and pads queries with [MASK]" do
+      {:ok, encoder} = Encoder.load()
+
+      query_tokens = Encoder.tokenize(encoder, "Conan", type: :query)
+
+      assert length(query_tokens) == 32
+      assert Enum.take(query_tokens, 5) == ["[CLS]", "[unused0]", "conan", "[SEP]", "[MASK]"]
+      assert Enum.all?(Enum.drop(query_tokens, 4), &(&1 == "[MASK]"))
+
+      assert Encoder.tokenize(encoder, "Stephen Colbert") ==
+               ["[CLS]", "[unused1]", "stephen", "colbert", "[SEP]"]
+    end
+  end
+
   describe "encode_query/3" do
     @tag :slow
     test "encodes query and pads to max_query_length" do

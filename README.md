@@ -11,7 +11,7 @@ Stephen implements late interaction retrieval using per-token embeddings and Max
 ```elixir
 def deps do
   [
-    {:stephen, "~> 1.0"},
+    {:stephen, "~> 2.0"},
     {:exla, "~> 1.0"}  # optional, for GPU acceleration
   ]
 end
@@ -23,6 +23,10 @@ For GPU acceleration:
 # config/config.exs
 config :nx, default_backend: EXLA.Backend
 ```
+
+### Upgrading from 1.x
+
+Stephen 2.0 encodes queries and documents like reference ColBERT. The query and document embeddings are different from 1.x, so rebuild every index that 1.x built. An index saved with 1.x does not give correct scores with 2.0 queries.
 
 ## Quick Start
 
